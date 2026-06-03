@@ -1,1 +1,47 @@
-# smartclean-app
+# ✨ SmartClean
+
+![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Tauri](https://img.shields.io/badge/Tauri-FFC131?style=for-the-badge&logo=Tauri&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+
+**SmartClean** is a modern, AI-driven macOS desktop application designed to solve cloud storage clutter. Instead of clicking through clunky filters and endless dropdowns to find old or heavy files, SmartClean introduces a **Text-to-Action** paradigm. You simply tell the AI what to delete, and it handles the complex API queries for you.
+
+Wrapped in a beautiful, native-feeling macOS "liquid glass" UI, SmartClean acts as a smart intermediary between your natural language intentions and the Google Drive API.
+
+---
+
+## 🚀 Features
+
+*   **🤖 Text-to-Action AI:** Type commands like *"Find and delete all mp3 files older than 2023"* or *"Show me all PDF duplicates."* The integrated LLM translates your prompt into precise Google Drive API queries.
+*   **🛡️ Safety First:** SmartClean never deletes anything automatically. It performs a dry run, displays the targeted files in a clean UI for your review, and requires manual confirmation before moving files to the Trash.
+*   **⚡ Smart Batching:** Safely handles rate-limits and large operations by paginating API requests (e.g., deleting files in batches of 100).
+*   **🔐 Secure Architecture:** Uses OAuth 2.0. Authentication tokens are handled securely, and users can revoke app access at any time.
+*   **💎 Native macOS Feel:** Built with Tauri, featuring a frameless window, transparent title bars, and a heavily optimized Glassmorphism UI that beautifully blurs your actual desktop wallpaper.
+
+---
+
+## 🛠️ Tech Stack
+
+This project uses a decoupled, highly performant full-stack architecture:
+
+### Frontend (Desktop Client)
+*   **Framework:** React + Vite
+*   **Desktop Engine:** Tauri (Rust-based, incredibly lightweight compared to Electron)
+*   **Styling:** Custom CSS with advanced `backdrop-filter` for native OS-level glassmorphism.
+
+### Backend (AI & API Gateway)
+*   **Framework:** FastAPI (Python) - highly performant, async-ready backend.
+*   **Authentication:** Google OAuth 2.0 (`google-auth`, `google-api-python-client`).
+*   **AI Integration:** OpenAI API / Google Gemini API for prompt-to-query translation.
+
+---
+
+## ⚙️ Local Development Setup
+
+To run this project locally, you will need **Node.js**, **Rust**, and **Python 3.9+** installed.
+
+### 1. Clone the repository
+```bash
+git clone [https://github.com/YOUR_USERNAME/smartclean-app.git](https://github.com/YOUR_USERNAME/smartclean-app.git)
+cd smartclean-app
