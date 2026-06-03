@@ -37,11 +37,4 @@ This project uses a decoupled, highly performant full-stack architecture:
 
 ---
 
-## ⚙️ Local Development Setup
 
-To run this project locally, you will need **Node.js**, **Rust**, and **Python 3.9+** installed.
-
-### 1. Clone the repository
-```bash
-git clone [https://github.com/YOUR_USERNAME/smartclean-app.git](https://github.com/YOUR_USERNAME/smartclean-app.git)
-cd smartclean-app
