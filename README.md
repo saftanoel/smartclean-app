@@ -1,5 +1,5 @@
 # ✨ SmartClean
-WORK IN PROGRES
+WORK IN PROGRESS
 
 
 ![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)
@@ -39,4 +39,44 @@ This project uses a decoupled, highly performant full-stack architecture:
 
 ---
 
+## 🚀 Getting Started (Local Development)
+
+Follow these steps to set up and run the **SmartClean** application on your local machine.
+
+### Prerequisites
+
+Since this is a Tauri application, you will need to have both the frontend and backend environments set up on your machine:
+
+1. **Node.js** (v16 or higher) - [Download here](https://nodejs.org/)
+2. **Rust** & Cargo - [Download here](https://rustup.rs/)
+3. **macOS dependencies** (Xcode Command Line Tools) - if you are building on a Mac:
+```bash
+xcode-select --install
+### Installation Steps
+
+**1. Clone the repository**
+```bash
+git clone [https://github.com/your-username/smartclean.git](https://github.com/your-username/smartclean.git)
+cd smartclean
+```
+
+**2. Install Frontend Dependencies**
+Navigate to the root folder (where `package.json` is located) and run:
+```bash
+npm install
+```
+
+**3. Configure Environment Variables**
+Create a `.env` file in the root of the project and add your Google Cloud credentials:
+```env
+GOOGLE_CLIENT_ID=your_client_id_here
+GOOGLE_CLIENT_SECRET=your_client_secret_here
+```
+*(Note: Never commit your `.env` file to version control. It should be added to `.gitignore`.)*
+
+**4. Run the Development Server**
+Start both the React frontend and the Rust (Tauri) backend simultaneously:
+```bash
+npm run tauri dev
+```
 
