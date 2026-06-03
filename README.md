@@ -1,7 +1,6 @@
 # ✨ SmartClean
 WORK IN PROGRESS
 
-
 ![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)
 ![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![Tauri](https://img.shields.io/badge/Tauri-FFC131?style=for-the-badge&logo=Tauri&logoColor=white)
@@ -52,6 +51,8 @@ Since this is a Tauri application, you will need to have both the frontend and b
 3. **macOS dependencies** (Xcode Command Line Tools) - if you are building on a Mac:
 ```bash
 xcode-select --install
+```
+
 ### Installation Steps
 
 **1. Clone the repository**
@@ -79,4 +80,3 @@ Start both the React frontend and the Rust (Tauri) backend simultaneously:
 ```bash
 npm run tauri dev
 ```
-
