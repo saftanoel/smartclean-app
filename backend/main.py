@@ -1,13 +1,15 @@
 import os
 import httpx
+import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# Importurile noi pentru Google Drive API
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -32,14 +34,17 @@ CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback")
 SCOPES = 'https://www.googleapis.com/auth/drive'
 
-# Aici vom stoca token-ul in memorie (fiind aplicatie locala desktop, o variabila globala e de ajuns momentan)
+# Configurare Gemini AI
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
 SESSION_STORE = {}
 
 @app.get("/health")
 async def health_check():
     return {"status": "API is running"}
 
-# --- NOU: Endpoint ca React-ul să știe dacă suntem conectați ---
 @app.get("/api/status")
 async def api_status():
     is_connected = "default_user" in SESSION_STORE
@@ -74,9 +79,7 @@ async def callback(code: str):
         token_data = response.json()
         
     if "access_token" in token_data:
-        # SALVĂM TOKEN-UL ÎN MEMORIE
         SESSION_STORE["default_user"] = token_data["access_token"]
-        
         print("\n✅ Token salvat in sesiune cu succes!\n")
         
         html_content = """
@@ -112,22 +115,17 @@ async def callback(code: str):
     else:
         return HTMLResponse(content=f"<h1>❌ Error from Google:</h1><p>{token_data}</p>")
 
-# --- NOU: Endpoint-ul care aduce efectiv fisierele din Drive ---
 @app.get("/api/files")
 async def get_files():
     token = SESSION_STORE.get("default_user")
-    
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated with Google Drive")
         
     try:
-        # Construim credentialele din token-ul salvat
         creds = Credentials(token=token)
-        
-        # Ne conectam la API-ul Google Drive v3
         service = build('drive', 'v3', credentials=creds)
         
-        # Facem query-ul: Luam cele mai recente 15 fisiere care NU sunt in Trash
+        # Momentan aducem 150 pentru performanta optima vizuala
         results = service.files().list(
             pageSize=150,
             fields="files(id, name, mimeType, size, modifiedTime)",
@@ -140,4 +138,47 @@ async def get_files():
         
     except Exception as e:
         print(f"Eroare la aducerea fisierelor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- NOU: Text-to-Action cu Gemini AI ---
+
+class ChatRequest(BaseModel):
+    prompt: str
+    files: list
+
+@app.post("/api/chat")
+async def process_chat(request: ChatRequest):
+    try:
+        system_instruction = """
+        You are SmartClean, an advanced AI for Google Drive management.
+        You will receive a user request and a JSON list of files.
+        You must return a raw JSON object with exactly two keys:
+        - "reply": A friendly, short natural language response explaining what you selected.
+        - "selected_ids": A list of strings containing the exact 'id's of the files that match the user's intent.
+        DO NOT include any markdown formatting like ```json. Just return the raw JSON object.
+        """
+        
+        model = genai.GenerativeModel(
+            model_name="gemini-2.5-flash",
+            system_instruction=system_instruction
+        )
+        
+        user_message = f"User Request: {request.prompt}\n\nFiles Data: {json.dumps(request.files)}"
+        
+        response = model.generate_content(user_message)
+        
+        # Curățăm textul ca să ne asigurăm că parsează corect JSON-ul
+        clean_text = response.text.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        if clean_text.startswith("```"):
+            clean_text = clean_text[3:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+            
+        data = json.loads(clean_text.strip())
+        return data # Va returna { "reply": "...", "selected_ids": ["..."] } direct catre React
+        
+    except Exception as e:
+        print(f"Eroare la procesarea AI: {e}")
         raise HTTPException(status_code=500, detail=str(e))

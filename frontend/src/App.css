@@ -494,3 +494,64 @@ body {
     opacity: 0.6;
   }
 }
+
+/* --- AI Chat Styles --- */
+.chat-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
+
+.chat-bubble.user {
+  background: #007aff;
+  /* Apple Blue */
+  color: white;
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble.ai {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+
+.chat-bubble.thinking {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* --- Highlight pentru fișierele selectate de AI --- */
+.file-item.selected-by-ai {
+  background: rgba(46, 213, 115, 0.15);
+  /* Subtil verde glow */
+  border: 1px solid rgba(46, 213, 115, 0.4);
+  transform: scale(1.01);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.selection-badge {
+  margin-left: auto;
+  background: #2ed573;
+  color: #121212;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 8px;
+  border-radius: 12px;
+  animation: scaleIn 0.3s ease-out;
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
