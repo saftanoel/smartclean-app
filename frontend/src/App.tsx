@@ -39,6 +39,28 @@ function App() {
     return "📄";
   };
 
+  // Funcție ajutătoare pentru a traduce mimeType-ul într-un text citibil
+  const getReadableFileType = (mimeType: string) => {
+    if (mimeType.includes("document")) return "Google Doc";
+    if (mimeType.includes("spreadsheet")) return "Google Sheet";
+    if (mimeType.includes("presentation")) return "Google Slides";
+    if (mimeType.includes("pdf")) return "PDF Document";
+    if (mimeType.includes("folder")) return "Folder";
+    if (mimeType.includes("colaboratory")) return "Jupyter Notebook";
+    if (mimeType.includes("image")) return "Image";
+    if (mimeType.includes("video")) return "Video";
+    if (mimeType.includes("audio")) return "Audio";
+    if (mimeType.includes("text")) return "Text File";
+    if (mimeType.includes("zip") || mimeType.includes("compressed")) return "Archive";
+    
+    // Fallback pt tipuri necunoscute (extrage extensia)
+    const parts = mimeType.split('/');
+    if (parts.length > 1) {
+      return parts[1].toUpperCase();
+    }
+    return "File";
+  };
+
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval>;
 
@@ -179,9 +201,9 @@ function App() {
                       <li key={file.id} className="file-item">
                         <span className="file-icon">{getFileIcon(file.mimeType)}</span>
                         <div className="file-details">
-                          <span className="file-name">{file.name}</span>
+                          <div className="file-name">{file.name}</div>
                           <span className="file-meta">
-                            {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
+                            <span style={{color: "rgba(255,255,255,0.7)", fontWeight: 500}}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
                           </span>
                         </div>
                       </li>

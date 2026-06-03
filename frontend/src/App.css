@@ -443,8 +443,13 @@ body {
   color: rgba(255, 255, 255, 0.95);
   margin-bottom: 4px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Hide scrollbar for smooth horizontal scrolling on filenames */
+.file-name::-webkit-scrollbar {
+  display: none;
 }
 
 .file-meta {
