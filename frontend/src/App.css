@@ -67,12 +67,14 @@ body {
 .mac-drag-region {
   position: fixed;
   top: 0;
-  left: 80px; /* Space for traffic lights */
+  left: 80px;
+  /* Space for traffic lights */
   right: 0;
   height: 48px;
-  z-index: 999999; /* Absolute top layer */
-  background: rgba(255, 255, 255, 0.01); 
-  cursor: default; 
+  z-index: 999999;
+  /* Absolute top layer */
+  background: rgba(255, 255, 255, 0.01);
+  cursor: default;
 }
 
 .app-layout {
@@ -85,11 +87,11 @@ body {
 
 /* GLASS PANEL UTILITY */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.03) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
   backdrop-filter: blur(40px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 15px 40px rgba(0, 0, s0, 0.5);
   border-radius: 20px;
   -webkit-transform: translate3d(0, 0, 0);
   transform: translate3d(0, 0, 0);

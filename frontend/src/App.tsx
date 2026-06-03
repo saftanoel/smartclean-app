@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { openUrl } from '@tauri-apps/plugin-opener';
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -68,7 +69,10 @@ function App() {
               <h2>Overview</h2>
               <span className="subtitle">Dashboard</span>
             </div>
-            <button className="macos-button connect-button" disabled>
+            <button 
+              className="macos-button connect-button" 
+              onClick={async () => await openUrl('http://localhost:8000/auth/login')}
+            >
               <span className="icon">☁️</span>
               Connect to Drive
             </button>
