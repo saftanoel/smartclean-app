@@ -10,6 +10,7 @@ interface DriveFile {
   mimeType: string;
   size?: string;
   modifiedTime: string;
+  webViewLink?: string;
 }
 
 interface ChatMessage {
@@ -28,6 +29,11 @@ function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [currentView, setCurrentView] = useState<"dashboard" | "trash">("dashboard");
+  const [trashFiles, setTrashFiles] = useState<DriveFile[]>([]);
+  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }
   ]);
@@ -151,8 +157,9 @@ function App() {
     }
   };
 
-  const handleDelete = async () => {
+  const executeDelete = async () => {
     if (selectedIds.length === 0) return;
+    setShowConfirmModal(false);
     setIsDeleting(true);
 
     try {
@@ -183,21 +190,81 @@ function App() {
     }
   };
 
+  const fetchTrashFiles = async () => {
+    setIsLoadingTrash(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/trash");
+      if (res.ok) {
+        const data = await res.json();
+        setTrashFiles(data.files);
+      }
+    } catch (error) {
+      console.error("Eroare la aducerea fisierelor din trash:", error);
+    } finally {
+      setIsLoadingTrash(false);
+    }
+  };
+
+  const handleRestoreFile = async (fileId: string) => {
+    try {
+      const res = await fetch("http://localhost:8000/api/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_ids: [fileId] })
+      });
+
+      if (res.ok) {
+        setTrashFiles(prev => prev.filter(f => f.id !== fileId));
+        const fetchRes = await fetch("http://localhost:8000/api/files");
+        if (fetchRes.ok) {
+          const fileData = await fetchRes.json();
+          setFiles(fileData.files);
+        }
+      }
+    } catch (error) {
+      console.error("Connection error during restore:", error);
+    }
+  };
+
+  const displayedFiles = files.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <div className="macos-window">
+      {showConfirmModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-panel">
+            <h3>⚠️ Confirm Trash</h3>
+            <p>Are you sure you want to move {selectedIds.length} items to the trash?</p>
+            <div className="modal-actions">
+              <button className="macos-button secondary" onClick={() => setShowConfirmModal(false)}>Cancel</button>
+              <button className="danger-button" onClick={executeDelete}>Yes, Trash them</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div data-tauri-drag-region className="mac-drag-region"></div>
       <div className="app-layout">
         {/* Sidebar */}
         <nav className="sidebar glass-panel">
           <div className="sidebar-header">
-            <div className="app-icon">✨</div>
             <h1 className="app-title">SmartClean</h1>
           </div>
 
           <ul className="nav-menu">
-            <li className="nav-item active">
-              <span className="icon">📁</span>
+            <li 
+              className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setCurrentView("dashboard")}
+            >
               Dashboard
+            </li>
+            <li 
+              className={`nav-item ${currentView === 'trash' ? 'active' : ''}`}
+              onClick={() => {
+                setCurrentView("trash");
+                fetchTrashFiles();
+              }}
+            >
+              🗑️ Trash Bin
             </li>
           </ul>
 
@@ -215,8 +282,8 @@ function App() {
         <main className="main-area">
           <header className="top-bar">
             <div className="breadcrumbs">
-              <h2>Overview</h2>
-              <span className="subtitle">Dashboard</span>
+              <h2>{currentView === 'dashboard' ? "Overview" : "Trash Bin"}</h2>
+              <span className="subtitle">{currentView === 'dashboard' ? "Dashboard" : "Deleted Files"}</span>
             </div>
 
             {!isConnected ? (
@@ -239,13 +306,13 @@ function App() {
             {/* File List Panel */}
             <div className="panel files-panel glass-panel">
               <div className="panel-header">
-                <h3>Recent Files</h3>
+                <h3>{currentView === 'dashboard' ? "Recent Files" : "Trash Bin"}</h3>
                 <div className="header-actions">
-                  <span className="panel-badge">{files.length} items</span>
-                  {selectedIds.length > 0 && (
+                  <span className="panel-badge">{currentView === 'dashboard' ? files.length : trashFiles.length} items</span>
+                  {currentView === 'dashboard' && selectedIds.length > 0 && (
                     <button 
                       className="danger-button" 
-                      onClick={handleDelete}
+                      onClick={() => setShowConfirmModal(true)}
                       disabled={isDeleting}
                     >
                       {isDeleting ? "Trashing..." : `🗑️ Trash ${selectedIds.length} Items`}
@@ -260,27 +327,72 @@ function App() {
                     <div className="empty-icon">🗂️</div>
                     <p>Connect your drive to see files</p>
                   </>
-                ) : isLoadingFiles ? (
-                  <div className="loading-spinner">Analyzing Drive...</div>
+                ) : (currentView === 'dashboard' ? isLoadingFiles : isLoadingTrash) ? (
+                  <div className="loading-spinner">{currentView === 'dashboard' ? "Analyzing Drive..." : "Loading Trash..."}</div>
+                ) : currentView === 'dashboard' ? (
+                  <>
+                    <div className="search-bar-container">
+                      <span className="search-icon">🔍</span>
+                      <input 
+                        type="text" 
+                        className="search-input macos-input" 
+                        placeholder="Search files..." 
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <ul className="file-list">
+                      {displayedFiles.map((file) => {
+                        // VERIFICĂM DACA FISIERUL E SELECTAT DE AI
+                        const isSelected = selectedIds.includes(file.id);
+
+                        return (
+                          <li key={file.id} className={`file-item ${isSelected ? 'selected-by-ai' : ''}`}>
+                            <span className="file-icon">{getFileIcon(file.mimeType)}</span>
+                            <div className="file-details">
+                              <div className="file-name">{file.name}</div>
+                              <span className="file-meta">
+                                <span style={{color: "rgba(255,255,255,0.7)", fontWeight: 500}}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <div className="file-actions">
+                              {file.webViewLink && (
+                                <button 
+                                  className="icon-button open-btn"
+                                  onClick={(e) => { e.stopPropagation(); openUrl(file.webViewLink!); }}
+                                  title="Open in Browser"
+                                >
+                                  ↗️
+                                </button>
+                              )}
+                              {isSelected && <span className="selection-badge">✓ Selected</span>}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </>
                 ) : (
                   <ul className="file-list">
-                    {files.map((file) => {
-                      // VERIFICĂM DACA FISIERUL E SELECTAT DE AI
-                      const isSelected = selectedIds.includes(file.id);
-
-                      return (
-                        <li key={file.id} className={`file-item ${isSelected ? 'selected-by-ai' : ''}`}>
-                          <span className="file-icon">{getFileIcon(file.mimeType)}</span>
-                          <div className="file-details">
-                            <div className="file-name">{file.name}</div>
-                            <span className="file-meta">
-                              <span style={{color: "rgba(255,255,255,0.7)", fontWeight: 500}}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
-                            </span>
-                          </div>
-                          {isSelected && <span className="selection-badge">✓ Selected</span>}
-                        </li>
-                      );
-                    })}
+                    {trashFiles.map((file) => (
+                      <li key={file.id} className="file-item">
+                        <span className="file-icon">{getFileIcon(file.mimeType)}</span>
+                        <div className="file-details">
+                          <div className="file-name">{file.name}</div>
+                          <span className="file-meta">
+                            <span style={{color: "rgba(255,255,255,0.7)", fontWeight: 500}}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div className="file-actions">
+                          <button 
+                            className="restore-button"
+                            onClick={(e) => { e.stopPropagation(); handleRestoreFile(file.id); }}
+                          >
+                            ↩️ Restore
+                          </button>
+                        </div>
+                      </li>
+                    ))}
                   </ul>
                 )}
               </div>

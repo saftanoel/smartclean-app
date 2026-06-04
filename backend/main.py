@@ -2,6 +2,7 @@ import os
 import httpx
 import json
 import re
+import base64 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -81,7 +82,7 @@ async def callback(code: str):
         
     if "access_token" in token_data:
         SESSION_STORE["default_user"] = token_data["access_token"]
-        print("\n✅ Token salvat in sesiune cu succes!\n")
+        print("\nToken salvat in sesiune cu succes!\n")
         
         html_content = """
         <!DOCTYPE html>
@@ -93,17 +94,14 @@ async def callback(code: str):
             <style>
                 body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; background-image: radial-gradient(circle at 50% 0%, #2a2a35 0%, #121212 70%); height: 100vh; display: flex; align-items: center; justify-content: center; color: #ffffff; }
                 .glass-card { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 40px 50px; text-align: center; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5); max-width: 400px; animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
-                .icon { font-size: 48px; margin-bottom: 20px; display: inline-block; animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both; }
                 h1 { margin: 0 0 10px 0; font-size: 24px; font-weight: 600; letter-spacing: -0.5px; }
                 p { margin: 0; color: #a0a0a5; font-size: 15px; line-height: 1.5; }
                 .sub-text { margin-top: 25px; font-size: 13px; color: #666; }
                 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-                @keyframes scaleIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
             </style>
         </head>
         <body>
             <div class="glass-card">
-                <div class="icon">✨</div>
                 <h1>Connected to Drive</h1>
                 <p>Authentication was successful. Your account is now safely linked.</p>
                 <div class="sub-text">You can close this tab and return to SmartClean.</div>
@@ -114,7 +112,7 @@ async def callback(code: str):
         """
         return HTMLResponse(content=html_content)
     else:
-        return HTMLResponse(content=f"<h1>❌ Error from Google:</h1><p>{token_data}</p>")
+        return HTMLResponse(content=f"<h1>Error from Google:</h1><p>{token_data}</p>")
 
 @app.get("/api/files")
 async def get_files():
@@ -126,10 +124,10 @@ async def get_files():
         creds = Credentials(token=token)
         service = build('drive', 'v3', credentials=creds)
         
-        # Momentan aducem 150 pentru performanta optima vizuala
+        # NOU: Am adaugat 'thumbnailLink' la fields!
         results = service.files().list(
             pageSize=150,
-            fields="files(id, name, mimeType, size, modifiedTime)",
+            fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
             orderBy="modifiedTime desc",
             q="trashed = false"
         ).execute()
@@ -141,7 +139,7 @@ async def get_files():
         print(f"Eroare la aducerea fisierelor: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- NOU: Text-to-Action cu Gemini AI ---
+# --- NOU: Text + Vision cu Gemini 3.5 Flash ---
 
 class ChatRequest(BaseModel):
     prompt: str
@@ -152,11 +150,13 @@ async def process_chat(request: ChatRequest):
     try:
         system_instruction = """
         You are SmartClean, an advanced AI for Google Drive management.
-        You will receive a user request and a JSON list of files.
-        You must return a raw JSON object with exactly two keys:
-        - "reply": A friendly, short natural language response explaining what you selected.
-        - "selected_ids": A list of strings containing the exact 'id's of the files that match the user's intent.
-        CRITICAL: Return ONLY valid JSON. No markdown, no backticks, no conversational text.
+        You will receive a user request, a JSON list of files, and potentially the actual images (thumbnails) for files that are pictures.
+        You must analyze BOTH the metadata (names, dates) and the actual visual content of the images (if provided) to match the user's request.
+        For example, if the user asks for "blurry photos", "screenshots of code", or "pictures of notebooks", you must visually inspect the provided images to decide.
+        Return a raw JSON object with exactly two keys:
+        - "reply": A friendly, short natural language response explaining what you selected based on visual and text analysis.
+        - "selected_ids": A list of strings containing the exact 'id's of the files that match.
+        CRITICAL: Return ONLY valid JSON. No markdown.
         """
         
         model = genai.GenerativeModel(
@@ -164,15 +164,40 @@ async def process_chat(request: ChatRequest):
             system_instruction=system_instruction
         )
         
-        user_message = f"User Request: {request.prompt}\n\nFiles Data: {json.dumps(request.files)}"
+        # 1. Preluăm datele de bază
+        prompt_content = [
+            f"User Request: {request.prompt}\n\n",
+            f"Files Metadata: {json.dumps(request.files)}\n\n",
+            "Images for visual analysis (if applicable):\n"
+        ]
         
-        print(f"\n🧠 Trimit către Gemini: {request.prompt}")
-        response = model.generate_content(user_message)
+        print(f"\nCerere primită: {request.prompt}")
+        print(f"Caut imagini pentru analiza vizuala...")
+        
+        # 2. Parcurgem lista de fisiere. Daca e imagine si are thumbnail, o descarcam!
+        async with httpx.AsyncClient() as client:
+            for file_obj in request.files:
+                if 'thumbnailLink' in file_obj and file_obj.get('mimeType', '').startswith('image/'):
+                    try:
+                        # Truc: Inlocuim =s220 cu =s800 pentru o rezolutie mult mai buna (ajuta masiv la cititul textului din screenshot-uri)
+                        thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
+                        img_resp = await client.get(thumb_url)
+                        
+                        if img_resp.status_code == 200:
+                            prompt_content.append(f"Image for file ID: {file_obj['id']}, Name: {file_obj['name']}")
+                            prompt_content.append({
+                                "mime_type": "image/jpeg",
+                                "data": base64.b64encode(img_resp.content).decode("utf-8")
+                            })
+                    except Exception as e:
+                        print(f"Eroare la descărcarea imaginii {file_obj['name']}: {e}")
+
+        print("Trimit tot pachetul (Text + Imagini) către Gemini 3.5 Flash...")
+        response = model.generate_content(prompt_content)
         
         raw_text = response.text
-        print(f"🤖 Gemini a răspuns (RAW):\n{raw_text}\n")
+        print(f"Gemini a răspuns.\n")
         
-        # O metodă mult mai robustă de a extrage JSON-ul folosind Regex (prinde tot ce e între acolade)
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if match:
             clean_text = match.group(0)
@@ -183,8 +208,7 @@ async def process_chat(request: ChatRequest):
         return data
         
     except Exception as e:
-        print(f"❌ Eroare la procesarea AI: {e}")
-        # Așa vedem și în frontend exact de ce a crăpat
+        print(f"Eroare la procesarea AI: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 class DeleteRequest(BaseModel):
@@ -203,7 +227,6 @@ async def delete_files(request: DeleteRequest):
         deleted_count = 0
         for file_id in request.file_ids:
             try:
-                # Setăm trashed = True. Este mult mai sigur decât service.files().delete()
                 service.files().update(fileId=file_id, body={'trashed': True}).execute()
                 deleted_count += 1
             except Exception as e:
@@ -217,3 +240,60 @@ async def delete_files(request: DeleteRequest):
     except Exception as e:
         print(f"Error trashing files: {e}")
         raise HTTPException(status_code=500, detail="Eroare la ștergerea fișierelor.")
+
+
+@app.get("/api/trash")
+async def get_trash_files():
+    token = SESSION_STORE.get("default_user")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated with Google Drive")
+        
+    try:
+        creds = Credentials(token=token)
+        service = build('drive', 'v3', credentials=creds)
+        
+        # Cerem fisierele care au parametrul trashed = true
+        results = service.files().list(
+            pageSize=150,
+            fields="files(id, name, mimeType, size, modifiedTime, webViewLink)",
+            orderBy="modifiedTime desc",
+            q="trashed = true"
+        ).execute()
+        
+        items = results.get('files', [])
+        return {"files": items}
+        
+    except Exception as e:
+        print(f"Eroare la aducerea fisierelor din trash: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RestoreRequest(BaseModel):
+    file_ids: list[str]
+
+@app.post("/api/restore")
+async def restore_files(request: RestoreRequest):
+    token = SESSION_STORE.get("default_user")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    try:
+        creds = Credentials(token=token)
+        service = build('drive', 'v3', credentials=creds)
+        
+        restored_count = 0
+        for file_id in request.file_ids:
+            try:
+                # Modificam parametrul trashed in False pentru a le scoate din gunoi
+                service.files().update(fileId=file_id, body={'trashed': False}).execute()
+                restored_count += 1
+            except Exception as e:
+                print(f"Failed to restore file {file_id}: {e}")
+                
+        return {
+            "message": f"Successfully restored {restored_count} files.", 
+            "restored_count": restored_count
+        }
+        
+    except Exception as e:
+        print(f"Error restoring files: {e}")
+        raise HTTPException(status_code=500, detail="Eroare la restaurarea fișierelor.")
