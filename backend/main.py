@@ -139,7 +139,6 @@ async def get_files():
         print(f"Eroare la aducerea fisierelor: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- NOU: Text + Vision cu Gemini 3.5 Flash ---
 
 class ChatRequest(BaseModel):
     prompt: str
@@ -179,7 +178,7 @@ async def process_chat(request: ChatRequest):
             for file_obj in request.files:
                 if 'thumbnailLink' in file_obj and file_obj.get('mimeType', '').startswith('image/'):
                     try:
-                        # Truc: Inlocuim =s220 cu =s800 pentru o rezolutie mult mai buna (ajuta masiv la cititul textului din screenshot-uri)
+
                         thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
                         img_resp = await client.get(thumb_url)
                         

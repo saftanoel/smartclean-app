@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud } from "lucide-react";
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -18,6 +18,24 @@ interface ChatMessage {
   sender: 'user' | 'ai';
   text: string;
 }
+
+const TypewriterText = ({ text, speed = 10 }: { text: string; speed?: number }) => {
+  const [displayedText, setDisplayedText] = useState("");
+
+  useEffect(() => {
+    let i = 0;
+    setDisplayedText(""); // Reset text on new mount
+    const intervalId = setInterval(() => {
+      setDisplayedText(text.slice(0, i + 1));
+      i++;
+      if (i >= text.length) clearInterval(intervalId);
+    }, speed);
+    
+    return () => clearInterval(intervalId);
+  }, [text, speed]);
+
+  return <>{displayedText}</>;
+};
 
 function App() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
@@ -38,6 +56,12 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }
   ]);
+
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isThinking]);
 
   const formatBytes = (bytes?: string) => {
     if (!bytes) return "--";
@@ -228,7 +252,16 @@ function App() {
     }
   };
 
-  const displayedFiles = files.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const displayedFiles = files
+    .filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      const aSelected = selectedIds.includes(a.id);
+      const bSelected = selectedIds.includes(b.id);
+      
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return 0; // Maintain original chronological order for the rest
+    });
 
   return (
     <div className="macos-window">
@@ -257,7 +290,7 @@ function App() {
               className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`}
               onClick={() => setCurrentView("dashboard")}
             >
-              Dashboard
+              <LayoutDashboard size={16} /> Dashboard
             </li>
             <li
               className={`nav-item ${currentView === 'trash' ? 'active' : ''}`}
@@ -266,7 +299,7 @@ function App() {
                 fetchTrashFiles();
               }}
             >
-              🗑️ Trash Bin
+              <Trash2 size={16} /> Trash Bin
             </li>
           </ul>
 
@@ -317,7 +350,7 @@ function App() {
                       onClick={() => setShowConfirmModal(true)}
                       disabled={isDeleting}
                     >
-                      {isDeleting ? "Trashing..." : `🗑️ Trash ${selectedIds.length} Items`}
+                      {isDeleting ? "Trashing..." : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
                     </button>
                   )}
                 </div>
@@ -404,11 +437,21 @@ function App() {
             <div className="panel ai-panel glass-panel">
               <div className="panel-header">
                 <h3>SmartClean Assistant (Gemini 3.5 Flash)</h3>
+                <button 
+                  className="shadcn-icon-button clear-chat-btn"
+                  onClick={() => {
+                    setMessages([{ sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }]);
+                    setSelectedIds([]);
+                  }}
+                  title="Clear Chat"
+                >
+                  <Trash2 size={14} />
+                </button>
               </div>
               <div className="chat-content">
                 {messages.map((msg, idx) => (
                   <div key={idx} className={`chat-bubble ${msg.sender}`}>
-                    {msg.text}
+                    {msg.sender === 'ai' ? <TypewriterText text={msg.text} speed={10} /> : msg.text}
                   </div>
                 ))}
                 {isThinking && (
@@ -416,6 +459,7 @@ function App() {
                     Thinking<span className="dots">...</span>
                   </div>
                 )}
+                <div ref={chatEndRef} />
               </div>
               <div className="chat-input-area">
                 <input

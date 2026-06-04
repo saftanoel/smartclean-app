@@ -787,3 +787,20 @@ body {
 /* Lucide Icon alignments */
 .search-icon { display: flex; align-items: center; opacity: 0.5; margin-right: 8px; }
 .file-icon { display: flex; align-items: center; margin-right: 16px; color: rgba(255, 255, 255, 0.7); }
+
+/* --- AI Chat Panel Header & Clear Chat Button --- */
+.ai-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.clear-chat-btn {
+  opacity: 1 !important;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.clear-chat-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+}
