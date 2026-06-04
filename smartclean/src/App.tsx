@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -47,14 +48,15 @@ function App() {
   };
 
   const getFileIcon = (mimeType: string) => {
-    if (mimeType.includes("document")) return "📄";
-    if (mimeType.includes("spreadsheet")) return "📊";
-    if (mimeType.includes("presentation")) return "🖥️";
-    if (mimeType.includes("pdf")) return "📕";
-    if (mimeType.includes("folder")) return "📁";
-    if (mimeType.includes("image")) return "🖼️";
-    if (mimeType.includes("colaboratory")) return "📓";
-    return "📄";
+    const iconProps = { size: 20, color: "rgba(255, 255, 255, 0.7)" };
+    if (mimeType.includes("document")) return <FileText {...iconProps} />;
+    if (mimeType.includes("spreadsheet")) return <FileSpreadsheet {...iconProps} />;
+    if (mimeType.includes("presentation")) return <Presentation {...iconProps} />;
+    if (mimeType.includes("pdf")) return <FileText {...iconProps} />;
+    if (mimeType.includes("folder")) return <Folder {...iconProps} />;
+    if (mimeType.includes("image")) return <ImageIcon {...iconProps} />;
+    if (mimeType.includes("zip") || mimeType.includes("compressed") || mimeType.includes("tar")) return <FileArchive {...iconProps} />;
+    return <FileIcon {...iconProps} />;
   };
 
   const getReadableFileType = (mimeType: string) => {
@@ -69,7 +71,7 @@ function App() {
     if (mimeType.includes("audio")) return "Audio";
     if (mimeType.includes("text")) return "Text File";
     if (mimeType.includes("zip") || mimeType.includes("compressed")) return "Archive";
-    
+
     const parts = mimeType.split('/');
     if (parts.length > 1) {
       return parts[1].toUpperCase();
@@ -173,7 +175,7 @@ function App() {
         const data = await res.json();
         setMessages(prev => [...prev, { sender: 'ai', text: `✅ Done! Moved ${data.deleted_count} files to Trash.` }]);
         setSelectedIds([]);
-        
+
         // Re-fetch files so UI updates immediately
         const fetchRes = await fetch("http://localhost:8000/api/files");
         if (fetchRes.ok) {
@@ -251,13 +253,13 @@ function App() {
           </div>
 
           <ul className="nav-menu">
-            <li 
+            <li
               className={`nav-item ${currentView === 'dashboard' ? 'active' : ''}`}
               onClick={() => setCurrentView("dashboard")}
             >
               Dashboard
             </li>
-            <li 
+            <li
               className={`nav-item ${currentView === 'trash' ? 'active' : ''}`}
               onClick={() => {
                 setCurrentView("trash");
@@ -291,7 +293,7 @@ function App() {
                 className="macos-button connect-button"
                 onClick={async () => await openUrl('http://localhost:8000/auth/login')}
               >
-                <span className="icon">☁️</span>
+                <span className="icon"><Cloud size={16} /></span>
                 Connect to Drive
               </button>
             ) : (
@@ -310,8 +312,8 @@ function App() {
                 <div className="header-actions">
                   <span className="panel-badge">{currentView === 'dashboard' ? files.length : trashFiles.length} items</span>
                   {currentView === 'dashboard' && selectedIds.length > 0 && (
-                    <button 
-                      className="danger-button" 
+                    <button
+                      className="danger-button"
                       onClick={() => setShowConfirmModal(true)}
                       disabled={isDeleting}
                     >
@@ -332,11 +334,11 @@ function App() {
                 ) : currentView === 'dashboard' ? (
                   <>
                     <div className="search-bar-container">
-                      <span className="search-icon">🔍</span>
-                      <input 
-                        type="text" 
-                        className="search-input macos-input" 
-                        placeholder="Search files..." 
+                      <span className="search-icon"><Search size={16} /></span>
+                      <input
+                        type="text"
+                        className="search-input macos-input"
+                        placeholder="Search files..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
@@ -352,17 +354,17 @@ function App() {
                             <div className="file-details">
                               <div className="file-name">{file.name}</div>
                               <span className="file-meta">
-                                <span style={{color: "rgba(255,255,255,0.7)", fontWeight: 500}}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
+                                <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
                               </span>
                             </div>
                             <div className="file-actions">
                               {file.webViewLink && (
-                                <button 
-                                  className="icon-button open-btn"
+                                <button
+                                  className="shadcn-icon-button"
                                   onClick={(e) => { e.stopPropagation(); openUrl(file.webViewLink!); }}
                                   title="Open in Browser"
                                 >
-                                  ↗️
+                                  <ArrowUpRight size={16} strokeWidth={2.5} />
                                 </button>
                               )}
                               {isSelected && <span className="selection-badge">✓ Selected</span>}
@@ -380,15 +382,15 @@ function App() {
                         <div className="file-details">
                           <div className="file-name">{file.name}</div>
                           <span className="file-meta">
-                            <span style={{color: "rgba(255,255,255,0.7)", fontWeight: 500}}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
+                            <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
                           </span>
                         </div>
                         <div className="file-actions">
-                          <button 
-                            className="restore-button"
+                          <button
+                            className="shadcn-button secondary"
                             onClick={(e) => { e.stopPropagation(); handleRestoreFile(file.id); }}
                           >
-                            ↩️ Restore
+                            <RotateCcw size={14} /> Restore
                           </button>
                         </div>
                       </li>
@@ -401,7 +403,7 @@ function App() {
             {/* AI Chat Panel */}
             <div className="panel ai-panel glass-panel">
               <div className="panel-header">
-                <h3>SmartClean Assistant</h3>
+                <h3>SmartClean Assistant (Gemini 3.5 Flash)</h3>
               </div>
               <div className="chat-content">
                 {messages.map((msg, idx) => (

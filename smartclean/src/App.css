@@ -435,6 +435,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  padding-right: 16px;
 }
 
 .file-name {
@@ -725,23 +728,62 @@ body {
   flex-shrink: 0;
 }
 
-/* --- Restore Button --- */
-.restore-button {
-  background: rgba(0, 122, 255, 0.15);
-  color: #0a84ff;
-  border: 1px solid rgba(0, 122, 255, 0.3);
-  padding: 6px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
+/* Shadcn UI Style Buttons */
+.shadcn-button {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  height: 28px;
+  padding: 0 10px;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-.restore-button:hover {
-  background: rgba(0, 122, 255, 0.25);
-  transform: scale(1.02);
+.shadcn-button.secondary {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
+
+.shadcn-button.secondary:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.shadcn-button:active {
+  transform: scale(0.97);
+}
+
+/* Shadcn Icon Button (Open Link) */
+.shadcn-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  background-color: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0;
+}
+
+.file-item:hover .shadcn-icon-button {
+  opacity: 1;
+}
+
+.shadcn-icon-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Lucide Icon alignments */
+.search-icon { display: flex; align-items: center; opacity: 0.5; margin-right: 8px; }
+.file-icon { display: flex; align-items: center; margin-right: 16px; color: rgba(255, 255, 255, 0.7); }
