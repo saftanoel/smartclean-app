@@ -27,6 +27,7 @@ function App() {
   const [chatInput, setChatInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }
   ]);
@@ -150,6 +151,38 @@ function App() {
     }
   };
 
+  const handleDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setIsDeleting(true);
+
+    try {
+      const res = await fetch("http://localhost:8000/api/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_ids: selectedIds })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(prev => [...prev, { sender: 'ai', text: `✅ Done! Moved ${data.deleted_count} files to Trash.` }]);
+        setSelectedIds([]);
+        
+        // Re-fetch files so UI updates immediately
+        const fetchRes = await fetch("http://localhost:8000/api/files");
+        if (fetchRes.ok) {
+          const fileData = await fetchRes.json();
+          setFiles(fileData.files);
+        }
+      } else {
+        setMessages(prev => [...prev, { sender: 'ai', text: "Error: Could not trash the files." }]);
+      }
+    } catch (error) {
+      setMessages(prev => [...prev, { sender: 'ai', text: "Connection error during delete." }]);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="macos-window">
       <div data-tauri-drag-region className="mac-drag-region"></div>
@@ -207,7 +240,18 @@ function App() {
             <div className="panel files-panel glass-panel">
               <div className="panel-header">
                 <h3>Recent Files</h3>
-                <span className="panel-badge">{files.length} items</span>
+                <div className="header-actions">
+                  <span className="panel-badge">{files.length} items</span>
+                  {selectedIds.length > 0 && (
+                    <button 
+                      className="danger-button" 
+                      onClick={handleDelete}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? "Trashing..." : `🗑️ Trash ${selectedIds.length} Items`}
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className={`panel-content ${!isConnected ? 'empty-state' : ''}`}>

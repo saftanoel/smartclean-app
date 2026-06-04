@@ -1,6 +1,7 @@
 import os
 import httpx
 import json
+import re
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -155,30 +156,64 @@ async def process_chat(request: ChatRequest):
         You must return a raw JSON object with exactly two keys:
         - "reply": A friendly, short natural language response explaining what you selected.
         - "selected_ids": A list of strings containing the exact 'id's of the files that match the user's intent.
-        DO NOT include any markdown formatting like ```json. Just return the raw JSON object.
+        CRITICAL: Return ONLY valid JSON. No markdown, no backticks, no conversational text.
         """
         
         model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3.5-flash",
             system_instruction=system_instruction
         )
         
         user_message = f"User Request: {request.prompt}\n\nFiles Data: {json.dumps(request.files)}"
         
+        print(f"\n🧠 Trimit către Gemini: {request.prompt}")
         response = model.generate_content(user_message)
         
-        # Curățăm textul ca să ne asigurăm că parsează corect JSON-ul
-        clean_text = response.text.strip()
-        if clean_text.startswith("```json"):
-            clean_text = clean_text[7:]
-        if clean_text.startswith("```"):
-            clean_text = clean_text[3:]
-        if clean_text.endswith("```"):
-            clean_text = clean_text[:-3]
+        raw_text = response.text
+        print(f"🤖 Gemini a răspuns (RAW):\n{raw_text}\n")
+        
+        # O metodă mult mai robustă de a extrage JSON-ul folosind Regex (prinde tot ce e între acolade)
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if match:
+            clean_text = match.group(0)
+        else:
+            clean_text = raw_text.strip()
             
-        data = json.loads(clean_text.strip())
-        return data # Va returna { "reply": "...", "selected_ids": ["..."] } direct catre React
+        data = json.loads(clean_text)
+        return data
         
     except Exception as e:
-        print(f"Eroare la procesarea AI: {e}")
+        print(f"❌ Eroare la procesarea AI: {e}")
+        # Așa vedem și în frontend exact de ce a crăpat
         raise HTTPException(status_code=500, detail=str(e))
+
+class DeleteRequest(BaseModel):
+    file_ids: list[str]
+
+@app.post("/api/delete")
+async def delete_files(request: DeleteRequest):
+    token = SESSION_STORE.get("default_user")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    try:
+        creds = Credentials(token=token)
+        service = build('drive', 'v3', credentials=creds)
+        
+        deleted_count = 0
+        for file_id in request.file_ids:
+            try:
+                # Setăm trashed = True. Este mult mai sigur decât service.files().delete()
+                service.files().update(fileId=file_id, body={'trashed': True}).execute()
+                deleted_count += 1
+            except Exception as e:
+                print(f"Failed to trash file {file_id}: {e}")
+                
+        return {
+            "message": f"Successfully moved {deleted_count} files to Trash.", 
+            "deleted_count": deleted_count
+        }
+        
+    except Exception as e:
+        print(f"Error trashing files: {e}")
+        raise HTTPException(status_code=500, detail="Eroare la ștergerea fișierelor.")

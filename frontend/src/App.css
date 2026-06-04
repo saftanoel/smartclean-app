@@ -555,3 +555,41 @@ body {
     opacity: 1;
   }
 }
+
+/* --- Action Button Styles --- */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.danger-button {
+  background: rgba(255, 59, 48, 0.15);
+  color: #ff3b30;
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: rgba(255, 59, 48, 0.25);
+  transform: scale(1.02);
+  border-color: rgba(255, 59, 48, 0.5);
+}
+
+.danger-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.danger-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
