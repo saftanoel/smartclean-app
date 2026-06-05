@@ -1,4 +1,5 @@
 import os
+import asyncio
 import httpx
 import json
 import re
@@ -180,20 +181,33 @@ async def process_chat(request: ChatRequest):
             "Images for visual analysis (if applicable):\n"
         ]
         
+        # OPTIMIZARE: Descărcăm imaginile CONCURENT (toate deodată)
         async with httpx.AsyncClient() as client:
+            fetch_tasks = []
+            file_metadata_for_tasks = []
+
             for file_obj in request.files:
                 if 'thumbnailLink' in file_obj and file_obj.get('mimeType', '').startswith('image/'):
-                    try:
-                        thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
-                        img_resp = await client.get(thumb_url)
-                        if img_resp.status_code == 200:
-                            prompt_content.append(f"Image for file ID: {file_obj['id']}, Name: {file_obj['name']}")
-                            prompt_content.append({
-                                "mime_type": "image/jpeg",
-                                "data": base64.b64encode(img_resp.content).decode("utf-8")
-                            })
-                    except Exception:
-                        pass
+                    # Pregătim URL-urile
+                    thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
+                    # Creăm "task-ul" de descărcare, dar nu îl executăm încă
+                    fetch_tasks.append(client.get(thumb_url))
+                    file_metadata_for_tasks.append(file_obj)
+
+            if fetch_tasks:
+                print(f"Descarc {len(fetch_tasks)} miniaturi in paralel...")
+                # Executăm TOATE task-urile în același timp!
+                responses = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+                prompt_content.append("Images for visual analysis (if applicable):\n")
+                for file_obj, img_resp in zip(file_metadata_for_tasks, responses):
+                    # Ne asigurăm că request-ul nu a dat eroare și are status 200
+                    if not isinstance(img_resp, Exception) and getattr(img_resp, 'status_code', None) == 200:
+                        prompt_content.append(f"Image for file ID: {file_obj['id']}, Name: {file_obj['name']}")
+                        prompt_content.append({
+                            "mime_type": "image/jpeg",
+                            "data": base64.b64encode(img_resp.content).decode("utf-8")
+                        })
 
         response = model.generate_content(prompt_content)
         raw_text = response.text
@@ -250,17 +264,32 @@ async def delete_files(request: DeleteRequest):
         raise HTTPException(status_code=401, detail="Not authenticated")
         
     try:
-        creds = Credentials(token=token)
-        service = build('drive', 'v3', credentials=creds)
-        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
         deleted_count = 0
-        for file_id in request.file_ids:
-            try:
-                service.files().update(fileId=file_id, body={'trashed': True}).execute()
-                deleted_count += 1
-            except Exception as e:
-                print(f"Failed to trash file {file_id}: {e}")
+        
+        async with httpx.AsyncClient() as client:
+            # Spargem lista in bucati de cate 50 pentru a evita Rate Limit-ul Google
+            chunk_size = 50
+            print(f"🗑️ Mutam {len(request.file_ids)} fisiere in trash (Batch processing async)...")
+            
+            for i in range(0, len(request.file_ids), chunk_size):
+                chunk_ids = request.file_ids[i:i + chunk_size]
+                tasks = []
                 
+                for file_id in chunk_ids:
+                    url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
+                    tasks.append(client.patch(url, headers=headers, json={"trashed": True}))
+                    
+                # Executam calupul de 50 concurent
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for resp in responses:
+                    if not isinstance(resp, Exception) and getattr(resp, 'status_code', None) == 200:
+                        deleted_count += 1
+                        
         return {
             "message": f"Successfully moved {deleted_count} files to Trash.", 
             "deleted_count": deleted_count
@@ -268,7 +297,7 @@ async def delete_files(request: DeleteRequest):
         
     except Exception as e:
         print(f"Error trashing files: {e}")
-        raise HTTPException(status_code=500, detail="Eroare la ștergerea fișierelor.")
+        raise HTTPException(status_code=500, detail="Eroare la stergerea fisierelor.")
 
 
 @app.get("/api/trash")
@@ -320,18 +349,30 @@ async def restore_files(request: RestoreRequest):
         raise HTTPException(status_code=401, detail="Not authenticated")
         
     try:
-        creds = Credentials(token=token)
-        service = build('drive', 'v3', credentials=creds)
-        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
         restored_count = 0
-        for file_id in request.file_ids:
-            try:
-                # Modificam parametrul trashed in False pentru a le scoate din gunoi
-                service.files().update(fileId=file_id, body={'trashed': False}).execute()
-                restored_count += 1
-            except Exception as e:
-                print(f"Failed to restore file {file_id}: {e}")
+        
+        async with httpx.AsyncClient() as client:
+            chunk_size = 50
+            print(f"♻️ Restauram {len(request.file_ids)} fisiere (Batch processing async)...")
+            
+            for i in range(0, len(request.file_ids), chunk_size):
+                chunk_ids = request.file_ids[i:i + chunk_size]
+                tasks = []
                 
+                for file_id in chunk_ids:
+                    url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
+                    tasks.append(client.patch(url, headers=headers, json={"trashed": False}))
+                    
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for resp in responses:
+                    if not isinstance(resp, Exception) and getattr(resp, 'status_code', None) == 200:
+                        restored_count += 1
+                        
         return {
             "message": f"Successfully restored {restored_count} files.", 
             "restored_count": restored_count
@@ -339,4 +380,4 @@ async def restore_files(request: RestoreRequest):
         
     except Exception as e:
         print(f"Error restoring files: {e}")
-        raise HTTPException(status_code=500, detail="Eroare la restaurarea fișierelor.")
+        raise HTTPException(status_code=500, detail="Eroare la restaurarea fisierelor.")

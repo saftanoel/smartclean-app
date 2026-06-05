@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard } from "lucide-react";
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2 } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -409,7 +409,7 @@ function App() {
                         onClick={() => setShowConfirmModal(true)}
                         disabled={isDeleting}
                       >
-                        {isDeleting ? "Trashing..." : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
+                        {isDeleting ? <><Loader2 className="spin-animation" size={16} /> Trashing...</> : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
                       </button>
                     </div>
                   )}
@@ -419,7 +419,7 @@ function App() {
                       onClick={() => setShowEmptyTrashModal(true)}
                       disabled={isEmptyingTrash}
                     >
-                      {isEmptyingTrash ? "Emptying..." : <><Trash2 size={16} /> Empty Trash</>}
+                      {isEmptyingTrash ? <><Loader2 className="spin-animation" size={16} /> Emptying...</> : <><Trash2 size={16} /> Empty Trash</>}
                     </button>
                   )}
                 </div>
