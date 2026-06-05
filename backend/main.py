@@ -126,7 +126,7 @@ async def get_files():
         
         # NOU: Am adaugat 'thumbnailLink' la fields!
         results = service.files().list(
-            pageSize=150,
+            pageSize=500,
             fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
             orderBy="modifiedTime desc",
             q="trashed = false"
@@ -295,6 +295,20 @@ async def get_trash_files():
     except Exception as e:
         print(f"Eroare la aducerea fisierelor din trash: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/trash/empty")
+async def empty_trash():
+    token = SESSION_STORE.get("default_user")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        creds = Credentials(token=token)
+        service = build('drive', 'v3', credentials=creds)
+        service.files().emptyTrash().execute()
+        return {"message": "Trash emptied successfully."}
+    except Exception as e:
+        print(f"Error emptying trash: {e}")
+        raise HTTPException(status_code=500, detail="Error emptying trash.")
 
 class RestoreRequest(BaseModel):
     file_ids: list[str]

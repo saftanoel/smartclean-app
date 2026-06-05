@@ -50,6 +50,8 @@ function App() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showEmptyTrashModal, setShowEmptyTrashModal] = useState(false);
+  const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
   const [currentView, setCurrentView] = useState<"dashboard" | "trash">("dashboard");
   const [trashFiles, setTrashFiles] = useState<DriveFile[]>([]);
   const [isLoadingTrash, setIsLoadingTrash] = useState(false);
@@ -192,6 +194,29 @@ function App() {
     }
   };
 
+  const executeEmptyTrash = async () => {
+    setShowEmptyTrashModal(false);
+    setIsEmptyingTrash(true);
+
+    try {
+      const res = await fetch("http://localhost:8000/api/trash/empty", {
+        method: "DELETE"
+      });
+
+      if (res.ok) {
+        setTrashFiles([]);
+        setMessages(prev => [...prev, { sender: 'ai', text: "✅ Trash emptied permanently!" }]);
+      } else {
+        setMessages(prev => [...prev, { sender: 'ai', text: "Error: Could not empty trash." }]);
+      }
+    } catch (error) {
+      console.error("Error emptying trash:", error);
+      setMessages(prev => [...prev, { sender: 'ai', text: "Connection error while emptying trash." }]);
+    } finally {
+      setIsEmptyingTrash(false);
+    }
+  };
+
   const executeDelete = async () => {
     if (selectedIds.length === 0) return;
     setShowConfirmModal(false);
@@ -289,11 +314,26 @@ function App() {
             <p>Are you sure you want to move {selectedIds.length} items to the trash?</p>
             <div className="modal-actions">
               <button className="macos-button secondary" onClick={() => setShowConfirmModal(false)}>Cancel</button>
-              <button className="danger-button" onClick={executeDelete}>Yes, Trash them</button>
+              <button className="macos-button danger" onClick={executeDelete}>Yes, Trash Them</button>
             </div>
           </div>
         </div>
       )}
+
+      {showEmptyTrashModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-panel">
+            <h3>⚠️ Empty Trash</h3>
+            <p>Are you sure you want to permanently delete all {trashFiles.length} files in the trash bin? This action cannot be undone.</p>
+            <div className="modal-actions">
+              <button className="macos-button secondary" onClick={() => setShowEmptyTrashModal(false)}>Cancel</button>
+              <button className="macos-button danger" onClick={executeEmptyTrash}>Yes, Empty Trash</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       <div data-tauri-drag-region className="mac-drag-region"></div>
       <div className="app-layout">
         {/* Sidebar */}
@@ -372,6 +412,15 @@ function App() {
                         {isDeleting ? "Trashing..." : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
                       </button>
                     </div>
+                  )}
+                  {currentView === 'trash' && trashFiles.length > 0 && (
+                    <button
+                      className="danger-button"
+                      onClick={() => setShowEmptyTrashModal(true)}
+                      disabled={isEmptyingTrash}
+                    >
+                      {isEmptyingTrash ? "Emptying..." : <><Trash2 size={16} /> Empty Trash</>}
+                    </button>
                   )}
                 </div>
               </div>
