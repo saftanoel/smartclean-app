@@ -146,16 +146,27 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def process_chat(request: ChatRequest):
+    token = SESSION_STORE.get("default_user")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
     try:
         system_instruction = """
         You are SmartClean, an advanced AI for Google Drive management.
-        You will receive a user request, a JSON list of files, and potentially the actual images (thumbnails) for files that are pictures.
-        You must analyze BOTH the metadata (names, dates) and the actual visual content of the images (if provided) to match the user's request.
-        For example, if the user asks for "blurry photos", "screenshots of code", or "pictures of notebooks", you must visually inspect the provided images to decide.
-        Return a raw JSON object with exactly two keys:
-        - "reply": A friendly, short natural language response explaining what you selected based on visual and text analysis.
-        - "selected_ids": A list of strings containing the exact 'id's of the files that match.
-        CRITICAL: Return ONLY valid JSON. No markdown.
+        You receive a user request, a JSON list of recent files, and thumbnails.
+        
+        You have TWO modes of operation. Decide which one fits best:
+        
+        MODE 1 (VISUAL/LOCAL): If the request requires analyzing image content (e.g., "blurry photos", "handwritten notes", "screenshots"), look at the provided files and thumbnails. Return "selected_ids" from the provided list, and set "drive_query" to null.
+        
+        MODE 2 (GLOBAL SEARCH): If the request asks to find all files of a certain format/type globally (e.g., "all mp3s", "all pdfs", "all videos"), DO NOT rely on the provided list. Set "drive_query" to a valid Google Drive API query string (e.g., "mimeType contains 'audio/'" or "name contains '.mp3'"). Set "selected_ids" to [].
+        
+        Return ONLY valid JSON with this exact structure:
+        {
+          "reply": "friendly explanation of what you did",
+          "selected_ids": ["id1", "id2"],
+          "drive_query": "query string or null"
+        }
         """
         
         model = genai.GenerativeModel(
@@ -163,47 +174,66 @@ async def process_chat(request: ChatRequest):
             system_instruction=system_instruction
         )
         
-        # 1. Preluăm datele de bază
         prompt_content = [
             f"User Request: {request.prompt}\n\n",
             f"Files Metadata: {json.dumps(request.files)}\n\n",
             "Images for visual analysis (if applicable):\n"
         ]
         
-        print(f"\nCerere primită: {request.prompt}")
-        print(f"Caut imagini pentru analiza vizuala...")
-        
-        # 2. Parcurgem lista de fisiere. Daca e imagine si are thumbnail, o descarcam!
         async with httpx.AsyncClient() as client:
             for file_obj in request.files:
                 if 'thumbnailLink' in file_obj and file_obj.get('mimeType', '').startswith('image/'):
                     try:
-
                         thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
                         img_resp = await client.get(thumb_url)
-                        
                         if img_resp.status_code == 200:
                             prompt_content.append(f"Image for file ID: {file_obj['id']}, Name: {file_obj['name']}")
                             prompt_content.append({
                                 "mime_type": "image/jpeg",
                                 "data": base64.b64encode(img_resp.content).decode("utf-8")
                             })
-                    except Exception as e:
-                        print(f"Eroare la descărcarea imaginii {file_obj['name']}: {e}")
+                    except Exception:
+                        pass
 
-        print("Trimit tot pachetul (Text + Imagini) către Gemini 3.5 Flash...")
         response = model.generate_content(prompt_content)
-        
         raw_text = response.text
-        print(f"Gemini a răspuns.\n")
         
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if match:
-            clean_text = match.group(0)
-        else:
-            clean_text = raw_text.strip()
-            
+        clean_text = match.group(0) if match else raw_text.strip()
         data = json.loads(clean_text)
+        
+        # MAGIA HIBRIDĂ: Executăm query-ul global cerut de AI
+        if data.get("drive_query"):
+            print(f"🔎 Căutare globală cerută de AI: {data['drive_query']}")
+            try:
+                creds = Credentials(token=token)
+                service = build('drive', 'v3', credentials=creds)
+                
+                final_q = f"({data['drive_query']}) and trashed = false"
+                
+                results = service.files().list(
+                    pageSize=500,
+                    fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
+                    orderBy="modifiedTime desc",
+                    q=final_q
+                ).execute()
+                
+                new_files = results.get('files', [])
+                data["new_files"] = new_files
+                data["selected_ids"] = [f["id"] for f in new_files]
+                
+                if new_files:
+                    data["reply"] += f" (Am scanat cloud-ul și am extras {len(new_files)} rezultate relevante pe care le-am adus în listă)."
+                else:
+                    data["reply"] += " (Nu am găsit nimic relevant în tot contul)."
+                    
+            except Exception as query_err:
+                print(f"Eroare la Google Drive API Query: {query_err}")
+                data["reply"] += " (Eroare la construirea comenzii globale)."
+                data["new_files"] = []
+        else:
+            data["new_files"] = []
+            
         return data
         
     except Exception as e:
@@ -253,7 +283,7 @@ async def get_trash_files():
         
         # Cerem fisierele care au parametrul trashed = true
         results = service.files().list(
-            pageSize=150,
+            pageSize=500,
             fields="files(id, name, mimeType, size, modifiedTime, webViewLink)",
             orderBy="modifiedTime desc",
             q="trashed = true"

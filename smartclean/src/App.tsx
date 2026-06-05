@@ -171,8 +171,17 @@ function App() {
 
       if (res.ok) {
         const data = await res.json();
-        setMessages(prev => [...prev, { sender: 'ai', text: data.reply }]);
+        
+        if (data.new_files && data.new_files.length > 0) {
+          setFiles(prev => {
+            const existingIds = new Set(prev.map(f => f.id));
+            const uniqueNew = data.new_files.filter((f: DriveFile) => !existingIds.has(f.id));
+            return [...uniqueNew, ...prev];
+          });
+        }
+        
         setSelectedIds(data.selected_ids || []);
+        setMessages(prev => [...prev, { sender: 'ai', text: data.reply }]);
       } else {
         setMessages(prev => [...prev, { sender: 'ai', text: "Eroare: Nu am putut procesa comanda." }]);
       }
@@ -250,6 +259,14 @@ function App() {
     } catch (error) {
       console.error("Connection error during restore:", error);
     }
+  };
+
+  const toggleFileSelection = (fileId: string) => {
+    setSelectedIds(prev => 
+      prev.includes(fileId) 
+        ? prev.filter(id => id !== fileId) 
+        : [...prev, fileId]
+    );
   };
 
   const displayedFiles = files
@@ -345,13 +362,16 @@ function App() {
                 <div className="header-actions">
                   <span className="panel-badge">{currentView === 'dashboard' ? files.length : trashFiles.length} items</span>
                   {currentView === 'dashboard' && selectedIds.length > 0 && (
-                    <button
-                      className="danger-button"
-                      onClick={() => setShowConfirmModal(true)}
-                      disabled={isDeleting}
-                    >
-                      {isDeleting ? "Trashing..." : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button className="shadcn-button secondary" onClick={() => setSelectedIds([])}>Clear</button>
+                      <button
+                        className="danger-button"
+                        onClick={() => setShowConfirmModal(true)}
+                        disabled={isDeleting}
+                      >
+                        {isDeleting ? "Trashing..." : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -382,7 +402,11 @@ function App() {
                         const isSelected = selectedIds.includes(file.id);
 
                         return (
-                          <li key={file.id} className={`file-item ${isSelected ? 'selected-by-ai' : ''}`}>
+                          <li 
+                            key={file.id} 
+                            className={`file-item ${isSelected ? 'selected-by-ai' : ''}`}
+                            onClick={() => toggleFileSelection(file.id)}
+                          >
                             <span className="file-icon">{getFileIcon(file.mimeType)}</span>
                             <div className="file-details">
                               <div className="file-name">{file.name}</div>
