@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2 } from "lucide-react";
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -24,7 +24,7 @@ const TypewriterText = ({ text, speed = 10 }: { text: string; speed?: number }) 
 
   useEffect(() => {
     let i = 0;
-    setDisplayedText(""); // Reset text on new mount
+    setDisplayedText("");
     const intervalId = setInterval(() => {
       setDisplayedText(text.slice(0, i + 1));
       i++;
@@ -43,7 +43,7 @@ function App() {
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
-  // --- NOU: State-uri pentru AI Chat ---
+
   const [chatInput, setChatInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -52,7 +52,19 @@ function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showEmptyTrashModal, setShowEmptyTrashModal] = useState(false);
   const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
-  const [currentView, setCurrentView] = useState<"dashboard" | "trash">("dashboard");
+  const [currentView, setCurrentView] = useState<"dashboard" | "trash" | "settings">("dashboard");
+  const [excludedExtensions, setExcludedExtensions] = useState<string>(
+    () => localStorage.getItem('excludedExtensions') || ".wav, .flac, .logicx"
+  );
+  const [searchBatchSize, setSearchBatchSize] = useState<number>(
+    () => parseInt(localStorage.getItem('searchBatchSize') || "500", 10)
+  );
+  const [typewriterSpeed, setTypewriterSpeed] = useState<number>(
+    () => parseInt(localStorage.getItem('typewriterSpeed') || "10", 10)
+  );
+  const [isCompactMode, setIsCompactMode] = useState<boolean>(
+    () => localStorage.getItem('isCompactMode') === 'true'
+  );
   const [trashFiles, setTrashFiles] = useState<DriveFile[]>([]);
   const [isLoadingTrash, setIsLoadingTrash] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -64,6 +76,13 @@ function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isThinking]);
+
+  useEffect(() => {
+    localStorage.setItem('excludedExtensions', excludedExtensions);
+    localStorage.setItem('searchBatchSize', searchBatchSize.toString());
+    localStorage.setItem('typewriterSpeed', typewriterSpeed.toString());
+    localStorage.setItem('isCompactMode', isCompactMode.toString());
+  }, [excludedExtensions, searchBatchSize, typewriterSpeed, isCompactMode]);
 
   const formatBytes = (bytes?: string) => {
     if (!bytes) return "--";
@@ -154,7 +173,7 @@ function App() {
     return () => clearInterval(intervalId);
   }, [isConnected]);
 
-  // --- NOU: Funcția care trimite mesajul la Gemini ---
+
   const handleSendMessage = async () => {
     if (!chatInput.trim() || !isConnected || files.length === 0) return;
 
@@ -162,7 +181,7 @@ function App() {
     setMessages(prev => [...prev, { sender: 'user', text: userText }]);
     setChatInput("");
     setIsThinking(true);
-    setSelectedIds([]); // Resetăm selecția veche
+    setSelectedIds([]);
 
     try {
       const res = await fetch("http://localhost:8000/api/chat", {
@@ -234,7 +253,7 @@ function App() {
         setMessages(prev => [...prev, { sender: 'ai', text: `✅ Done! Moved ${data.deleted_count} files to Trash.` }]);
         setSelectedIds([]);
 
-        // Re-fetch files so UI updates immediately
+
         const fetchRes = await fetch("http://localhost:8000/api/files");
         if (fetchRes.ok) {
           const fileData = await fetchRes.json();
@@ -302,7 +321,7 @@ function App() {
       
       if (aSelected && !bSelected) return -1;
       if (!aSelected && bSelected) return 1;
-      return 0; // Maintain original chronological order for the rest
+      return 0;
     });
 
   return (
@@ -336,7 +355,7 @@ function App() {
 
       <div data-tauri-drag-region className="mac-drag-region"></div>
       <div className="app-layout">
-        {/* Sidebar */}
+
         <nav className="sidebar glass-panel">
           <div className="sidebar-header">
             <h1 className="app-title">SmartClean</h1>
@@ -358,6 +377,12 @@ function App() {
             >
               <Trash2 size={16} /> Trash Bin
             </li>
+            <li
+              className={`nav-item ${currentView === 'settings' ? 'active' : ''}`}
+              onClick={() => setCurrentView("settings")}
+            >
+              <Settings size={16} /> Settings
+            </li>
           </ul>
 
           <div className="sidebar-footer">
@@ -370,12 +395,12 @@ function App() {
           </div>
         </nav>
 
-        {/* Main Content Area */}
+
         <main className="main-area">
           <header className="top-bar">
             <div className="breadcrumbs">
-              <h2>{currentView === 'dashboard' ? "Overview" : "Trash Bin"}</h2>
-              <span className="subtitle">{currentView === 'dashboard' ? "Dashboard" : "Deleted Files"}</span>
+              <h2>{currentView === 'dashboard' ? "Overview" : currentView === 'trash' ? "Trash Bin" : "Settings"}</h2>
+              <span className="subtitle">{currentView === 'dashboard' ? "Dashboard" : currentView === 'trash' ? "Deleted Files" : "Preferences"}</span>
             </div>
 
             {!isConnected ? (
@@ -394,8 +419,54 @@ function App() {
             )}
           </header>
 
+          {currentView === 'settings' ? (
+            <div className="settings-panel">
+              <div className="settings-card glass-panel">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} /> Drive & Safety Settings</h3>
+                <div className="setting-row">
+                  <label>Excluded Extensions</label>
+                  <input type="text" className="macos-input" value={excludedExtensions} onChange={e => setExcludedExtensions(e.target.value)} />
+                </div>
+                <div className="setting-row">
+                  <label>Global Search Limit ({searchBatchSize} items)</label>
+                  <input type="range" min="100" max="1000" step="50" value={searchBatchSize} onChange={e => setSearchBatchSize(parseInt(e.target.value))} />
+                </div>
+              </div>
+              
+              <div className="settings-card glass-panel">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} /> AI & Chat Preferences</h3>
+                <div className="setting-row">
+                  <label>Typewriter Effect Speed ({typewriterSpeed}ms)</label>
+                  <input type="range" min="5" max="50" step="1" value={typewriterSpeed} onChange={e => setTypewriterSpeed(parseInt(e.target.value))} />
+                </div>
+                <div className="setting-row">
+                  <button className="macos-button" onClick={() => setMessages([])}>
+                    <Eraser size={14} /> Clear Chat History
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-card glass-panel">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Palette size={18} /> UI & Appearance</h3>
+                <div className="setting-row" style={{ flexDirection: 'row', alignItems: 'center', gap: '12px' }}>
+                  <input type="checkbox" id="compactMode" checked={isCompactMode} onChange={e => setIsCompactMode(e.target.checked)} />
+                  <label htmlFor="compactMode">Compact List Density</label>
+                </div>
+              </div>
+
+              <div className="settings-card glass-panel">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Lock size={18} /> Account & Data</h3>
+                <button className="danger-button" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => {
+                   setIsConnected(false);
+                   setFiles([]);
+                   setTrashFiles([]);
+                   setMessages([{ sender: 'ai', text: "Session disconnected." }]);
+                }}>Disconnect Google Drive</button>
+              </div>
+            </div>
+          ) : (
           <div className="dashboard-grid">
-            {/* File List Panel */}
+
             <div className="panel files-panel glass-panel">
               <div className="panel-header">
                 <h3>{currentView === 'dashboard' ? "Recent Files" : "Trash Bin"}</h3>
@@ -447,13 +518,13 @@ function App() {
                     </div>
                     <ul className="file-list">
                       {displayedFiles.map((file) => {
-                        // VERIFICĂM DACA FISIERUL E SELECTAT DE AI
+
                         const isSelected = selectedIds.includes(file.id);
 
                         return (
                           <li 
                             key={file.id} 
-                            className={`file-item ${isSelected ? 'selected-by-ai' : ''}`}
+                            className={`file-item ${isSelected ? 'selected-by-ai' : ''} ${isCompactMode ? 'compact' : ''}`}
                             onClick={() => toggleFileSelection(file.id)}
                           >
                             <span className="file-icon">{getFileIcon(file.mimeType)}</span>
@@ -483,7 +554,7 @@ function App() {
                 ) : (
                   <ul className="file-list">
                     {trashFiles.map((file) => (
-                      <li key={file.id} className="file-item">
+                      <li key={file.id} className={`file-item ${isCompactMode ? 'compact' : ''}`}>
                         <span className="file-icon">{getFileIcon(file.mimeType)}</span>
                         <div className="file-details">
                           <div className="file-name">{file.name}</div>
@@ -506,7 +577,7 @@ function App() {
               </div>
             </div>
 
-            {/* AI Chat Panel */}
+
             <div className="panel ai-panel glass-panel">
               <div className="panel-header">
                 <h3>SmartClean Assistant (Gemini 3.5 Flash)</h3>
@@ -524,7 +595,7 @@ function App() {
               <div className="chat-content">
                 {messages.map((msg, idx) => (
                   <div key={idx} className={`chat-bubble ${msg.sender}`}>
-                    {msg.sender === 'ai' ? <TypewriterText text={msg.text} speed={10} /> : msg.text}
+                    {msg.sender === 'ai' ? <TypewriterText text={msg.text} speed={typewriterSpeed} /> : msg.text}
                   </div>
                 ))}
                 {isThinking && (
@@ -548,7 +619,8 @@ function App() {
                 />
               </div>
             </div>
-          </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

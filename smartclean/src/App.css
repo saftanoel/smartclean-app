@@ -1,19 +1,15 @@
-/* Native macOS system font & variables */
 :root {
   --font-base: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
-  /* Glass variables */
-  --glass-bg: rgba(0, 0, 0, 0.2);
+    --glass-bg: rgba(0, 0, 0, 0.2);
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
   --glass-radius: 24px;
 
-  /* Text */
-  --text-primary: rgba(255, 255, 255, 0.9);
+    --text-primary: rgba(255, 255, 255, 0.9);
   --text-secondary: rgba(255, 255, 255, 0.5);
 
-  /* UI elements */
-  --btn-bg: rgba(255, 255, 255, 0.1);
+    --btn-bg: rgba(255, 255, 255, 0.1);
   --btn-border: rgba(255, 255, 255, 0.15);
 }
 
@@ -35,13 +31,14 @@ html,
   overflow: hidden !important;
 }
 
-body, #root {
+body,
+#root {
   margin: 0 !important;
   padding: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
-  background-color: rgba(0, 0, 0, 0.15) !important; /* Sheer black tint overlay */
-  color: #ffffff;
+  background-color: rgba(0, 0, 0, 0.15) !important;
+    color: #ffffff;
   overflow: hidden !important;
 }
 
@@ -71,17 +68,14 @@ body {
   backface-visibility: hidden;
 }
 
-
 .mac-drag-region {
   position: fixed;
   top: 0;
   left: 80px;
-  /* Space for traffic lights */
-  right: 0;
+    right: 0;
   height: 48px;
   z-index: 999999;
-  /* Absolute top layer */
-  background: transparent;
+    background: transparent;
   cursor: default;
 }
 
@@ -93,11 +87,9 @@ body {
   gap: 16px;
 }
 
-/* GLASS PANEL UTILITY */
 .glass-panel {
   background: rgba(10, 10, 10, 0.8) !important;
-  /* Native macOS vibrancy applied via Rust */
-  border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow: 0 15px 40px rgba(0, 0, s0, 0.5);
   border-radius: 20px;
   -webkit-transform: translate3d(0, 0, 0);
@@ -106,7 +98,6 @@ body {
   backface-visibility: hidden;
 }
 
-/* SIDEBAR */
 .sidebar {
   width: 240px;
   display: flex;
@@ -184,20 +175,17 @@ body {
 
 .status-dot.connected {
   background: #32d74b;
-  /* macOS green */
-  box-shadow: 0 0 8px rgba(50, 215, 75, 0.8);
+    box-shadow: 0 0 8px rgba(50, 215, 75, 0.8);
 }
 
 .status-dot.disconnected {
   background: #ff453a;
-  /* macOS red */
-  box-shadow: 0 0 8px rgba(255, 69, 58, 0.8);
+    box-shadow: 0 0 8px rgba(255, 69, 58, 0.8);
 }
 
 .status-dot.checking {
   background: #ffd60a;
-  /* macOS yellow */
-  box-shadow: 0 0 8px rgba(255, 214, 10, 0.8);
+    box-shadow: 0 0 8px rgba(255, 214, 10, 0.8);
 }
 
 .status-text {
@@ -206,7 +194,6 @@ body {
   color: var(--text-secondary);
 }
 
-/* MAIN AREA */
 .main-area {
   flex-grow: 1;
   display: flex;
@@ -236,7 +223,6 @@ body {
   font-weight: 500;
 }
 
-/* MacOS Native-looking Button */
 .macos-button {
   display: flex;
   align-items: center;
@@ -263,7 +249,6 @@ body {
   cursor: not-allowed;
 }
 
-/* DASHBOARD GRID */
 .dashboard-grid {
   display: flex;
   gap: 16px;
@@ -301,7 +286,6 @@ body {
   border-radius: 4px;
 }
 
-/* FILE LIST PLACEHOLDER */
 .files-panel {
   flex: 2;
 }
@@ -337,7 +321,6 @@ body {
   color: var(--text-secondary);
 }
 
-/* AI CHAT PLACEHOLDER */
 .ai-panel {
   flex: 1;
   min-width: 280px;
@@ -394,7 +377,6 @@ body {
   color: var(--text-secondary);
 }
 
-/* --- Google Drive File List Styles --- */
 .file-list {
   list-style: none;
   padding: 0;
@@ -403,7 +385,6 @@ body {
   max-height: calc(100vh - 250px);
 }
 
-/* Custom Scrollbar for the file list */
 .file-list::-webkit-scrollbar {
   width: 6px;
 }
@@ -457,7 +438,6 @@ body {
   overflow-y: hidden;
 }
 
-/* Hide scrollbar for smooth horizontal scrolling on filenames */
 .file-name::-webkit-scrollbar {
   display: none;
 }
@@ -467,7 +447,6 @@ body {
   color: rgba(255, 255, 255, 0.5);
 }
 
-/* Connected Badge in Header */
 .connected-badge {
   display: flex;
   align-items: center;
@@ -515,7 +494,6 @@ body {
   }
 }
 
-/* --- AI Chat Styles --- */
 .chat-content {
   display: flex;
   flex-direction: column;
@@ -526,8 +504,7 @@ body {
 
 .chat-bubble.user {
   background: #007aff;
-  /* Apple Blue */
-  color: white;
+    color: white;
   align-self: flex-end;
   border-bottom-right-radius: 4px;
 }
@@ -544,11 +521,9 @@ body {
   opacity: 0.7;
 }
 
-/* --- Highlight pentru fișierele selectate de AI --- */
 .file-item.selected-by-ai {
   background: rgba(46, 213, 115, 0.15);
-  /* Subtil verde glow */
-  border: 1px solid rgba(46, 213, 115, 0.4);
+    border: 1px solid rgba(46, 213, 115, 0.4);
   transform: scale(1.01);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
@@ -576,7 +551,6 @@ body {
   }
 }
 
-/* --- Action Button Styles --- */
 .header-actions {
   display: flex;
   align-items: center;
@@ -614,7 +588,6 @@ body {
   filter: grayscale(1);
 }
 
-/* --- Modal Styles --- */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -672,16 +645,27 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  from { transform: translateY(20px) scale(0.95); opacity: 0; }
-  to { transform: translateY(0) scale(1); opacity: 1; }
+  from {
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
 }
 
-/* --- Search Bar --- */
 .search-bar-container {
   display: flex;
   align-items: center;
@@ -708,7 +692,6 @@ body {
   outline: none;
 }
 
-/* --- File Actions & Open Button --- */
 .file-actions {
   display: flex;
   align-items: center;
@@ -727,8 +710,8 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
-  opacity: 0; /* Hidden by default */
-  transform: scale(0.9);
+  opacity: 0;
+    transform: scale(0.9);
 }
 
 .file-item:hover .icon-button {
@@ -745,7 +728,6 @@ body {
   flex-shrink: 0;
 }
 
-/* Shadcn UI Style Buttons */
 .shadcn-button {
   display: inline-flex;
   align-items: center;
@@ -775,7 +757,6 @@ body {
   transform: scale(0.97);
 }
 
-/* Shadcn Icon Button (Open Link) */
 .shadcn-icon-button {
   display: inline-flex;
   align-items: center;
@@ -801,11 +782,20 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Lucide Icon alignments */
-.search-icon { display: flex; align-items: center; opacity: 0.5; margin-right: 8px; }
-.file-icon { display: flex; align-items: center; margin-right: 16px; color: rgba(255, 255, 255, 0.7); }
+.search-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+  margin-right: 8px;
+}
 
-/* --- AI Chat Panel Header & Clear Chat Button --- */
+.file-icon {
+  display: flex;
+  align-items: center;
+  margin-right: 16px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
 .ai-panel .panel-header {
   display: flex;
   justify-content: space-between;
@@ -820,4 +810,61 @@ body {
 .clear-chat-btn:hover {
   background-color: rgba(255, 255, 255, 0.1);
   color: white;
+}
+
+.settings-panel {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.settings-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-card h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-row label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.setting-row input[type="range"] {
+  width: 100%;
+  accent-color: #32d74b;
+}
+
+.file-item.compact {
+  padding: 6px 12px;
+}
+
+.file-item.compact .file-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.file-item.compact .file-name {
+  font-size: 12px;
+}
+
+.file-item.compact .file-meta {
+  font-size: 10px;
 }
