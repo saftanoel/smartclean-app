@@ -31,6 +31,13 @@ Wrapped in a beautiful, native-feeling macOS "liquid glass" UI, SmartClean acts 
 
 ---
 
+## 🔮 Roadmap / Future Plans
+
+*   **📧 Gmail Integration:** Expand the AI Text-to-Action capabilities to your inbox. Soon, you will be able to delete spam, clear out old promotional emails, and manage your inbox just as easily as your Google Drive.
+*   **⚙️ Advanced AI Agent:** Enhance the backend to execute multi-step tool calls for more complex storage and email management workflows.
+
+---
+
 ## 🛠️ Tech Stack
 
 This project uses a decoupled, highly performant full-stack architecture:
