@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
@@ -39,8 +40,6 @@ SCOPES = 'https://www.googleapis.com/auth/drive'
 
 # Configurare Gemini AI
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 SESSION_STORE = {}
 
@@ -170,10 +169,7 @@ async def process_chat(request: ChatRequest):
         }
         """
         
-        model = genai.GenerativeModel(
-            model_name="gemini-3.5-flash",
-            system_instruction=system_instruction
-        )
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
         
         prompt_content = [
             f"User Request: {request.prompt}\n\n",
@@ -181,8 +177,7 @@ async def process_chat(request: ChatRequest):
             "Images for visual analysis (if applicable):\n"
         ]
         
-        # OPTIMIZARE: Descărcăm imaginile CONCURENT (toate deodată)
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient() as http_client:
             fetch_tasks = []
             file_metadata_for_tasks = []
 
@@ -191,7 +186,7 @@ async def process_chat(request: ChatRequest):
                     # Pregătim URL-urile
                     thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
                     # Creăm "task-ul" de descărcare, dar nu îl executăm încă
-                    fetch_tasks.append(client.get(thumb_url))
+                    fetch_tasks.append(http_client.get(thumb_url))
                     file_metadata_for_tasks.append(file_obj)
 
             if fetch_tasks:
@@ -204,12 +199,17 @@ async def process_chat(request: ChatRequest):
                     # Ne asigurăm că request-ul nu a dat eroare și are status 200
                     if not isinstance(img_resp, Exception) and getattr(img_resp, 'status_code', None) == 200:
                         prompt_content.append(f"Image for file ID: {file_obj['id']}, Name: {file_obj['name']}")
-                        prompt_content.append({
-                            "mime_type": "image/jpeg",
-                            "data": base64.b64encode(img_resp.content).decode("utf-8")
-                        })
+                        prompt_content.append(
+                            types.Part.from_bytes(data=img_resp.content, mime_type="image/jpeg")
+                        )
 
-        response = model.generate_content(prompt_content)
+        response = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt_content,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction
+            )
+        )
         raw_text = response.text
         
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
