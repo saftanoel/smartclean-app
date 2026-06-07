@@ -176,20 +176,22 @@ async def process_chat(request: ChatRequest):
         
         You have THREE modes of operation. Decide which one fits best:
         
-        MODE 1 (DRIVE VISUAL/LOCAL): If the request requires analyzing image content in Drive, look at the provided files and thumbnails. Return "selected_ids" from the provided list, and set "drive_query" to null. Set "target_platform" to "drive".
+        MODE 1 (DRIVE VISUAL/LOCAL): If the request requires analyzing image content in Drive (e.g. "blurry photos"), look at the provided files and thumbnails. Return "selected_ids" from the provided list, and set "drive_query" to null. Set "target_platform" to "drive".
         
-        MODE 2 (DRIVE GLOBAL SEARCH): If the request asks to find all Drive files of a certain format/type globally, DO NOT rely on the provided list. Set "drive_query" to a valid Google Drive API query string. Set "selected_ids" to []. Set "target_platform" to "drive".
+        MODE 2 (DRIVE GLOBAL SEARCH): If the request asks to find all Drive files of a certain format/type globally (e.g. "all pdfs"), DO NOT rely on the provided list. Set "drive_query" to a valid Google Drive API query string (e.g. "mimeType contains 'application/pdf'"). Set "selected_ids" to []. Set "target_platform" to "drive".
         
-        MODE 3 (GMAIL SEARCH): If the user asks to delete emails, newsletters, spam, or old messages, set "target_platform" to "gmail" and generate a valid Gmail search query in "drive_query" (e.g., "older_than:1y", "from:newsletter@example.com", "has:attachment"). Set "selected_ids" to []. Keep using the field name "drive_query" for backwards compatibility, but it will hold the Gmail query.
+        MODE 3 (GMAIL ACTION/SEARCH): If the user asks to delete emails, newsletters, spam, or search for specific messages, set "target_platform" to "gmail". Generate a valid Gmail search query in the "drive_query" field (e.g., "older_than:1y", "from:newsletter@example.com", "has:attachment"). Set "selected_ids" to []. 
+        
+        IMPORTANT: Your goal is to prepare files/emails for the user to review. You do NOT delete anything yourself. You only provide the IDs or the query so the system can display them to the user.
         
         Return ONLY valid JSON with this exact structure:
         {
-          "reply": "friendly explanation of what you did",
+          "reply": "friendly explanation of what you did and that the items are ready for review",
           "selected_ids": ["id1", "id2"],
           "drive_query": "query string or null",
-          "target_platform": "drive"
+          "target_platform": "drive" 
         }
-        (Note: target_platform can be 'drive' or 'gmail')
+        (Note: target_platform can ONLY be 'drive' or 'gmail')
         """
         
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)

@@ -30,7 +30,7 @@ const TypewriterText = ({ text, speed = 10 }: { text: string; speed?: number }) 
       i++;
       if (i >= text.length) clearInterval(intervalId);
     }, speed);
-    
+
     return () => clearInterval(intervalId);
   }, [text, speed]);
 
@@ -52,7 +52,8 @@ function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showEmptyTrashModal, setShowEmptyTrashModal] = useState(false);
   const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
-  const [currentView, setCurrentView] = useState<"dashboard" | "trash" | "settings" | "gmail">("dashboard");
+  const [currentView, setCurrentView] = useState<"dashboard" | "trash" | "settings">("dashboard");
+  const [platform, setPlatform] = useState<'drive' | 'gmail'>('drive');
   const [gmailEmails, setGmailEmails] = useState<DriveFile[]>([]);
   const [isLoadingEmails, setIsLoadingEmails] = useState(false);
   const [excludedExtensions, setExcludedExtensions] = useState<string>(
@@ -212,7 +213,7 @@ function App() {
 
       if (res.ok) {
         const data = await res.json();
-        
+
         if (data.new_files && data.new_files.length > 0) {
           if (data.target_platform === "gmail") {
             setGmailEmails(prev => {
@@ -220,19 +221,25 @@ function App() {
               const uniqueNew = data.new_files.filter((f: DriveFile) => !existingIds.has(f.id));
               return [...uniqueNew, ...prev];
             });
-            setCurrentView("gmail");
+            setPlatform("gmail");
+            setCurrentView("dashboard");
           } else {
             setFiles(prev => {
               const existingIds = new Set(prev.map(f => f.id));
               const uniqueNew = data.new_files.filter((f: DriveFile) => !existingIds.has(f.id));
               return [...uniqueNew, ...prev];
             });
+            setPlatform("drive");
             setCurrentView("dashboard");
           }
         } else if (data.target_platform === "gmail") {
-           setCurrentView("gmail");
+          setPlatform("gmail");
+          setCurrentView("dashboard");
+        } else if (data.target_platform === "drive") {
+          setPlatform("drive");
+          setCurrentView("dashboard");
         }
-        
+
         setSelectedIds(data.selected_ids || []);
         setMessages(prev => [...prev, { sender: 'ai', text: data.reply }]);
       } else {
@@ -273,7 +280,7 @@ function App() {
     setShowConfirmModal(false);
     setIsDeleting(true);
 
-    const isGmail = currentView === 'gmail';
+    const isGmail = platform === 'gmail';
     const endpoint = isGmail ? "http://localhost:8000/api/gmail/trash" : "http://localhost:8000/api/delete";
     const payloadKey = isGmail ? "email_ids" : "file_ids";
 
@@ -345,22 +352,22 @@ function App() {
   };
 
   const toggleFileSelection = (fileId: string) => {
-    setSelectedIds(prev => 
-      prev.includes(fileId) 
-        ? prev.filter(id => id !== fileId) 
+    setSelectedIds(prev =>
+      prev.includes(fileId)
+        ? prev.filter(id => id !== fileId)
         : [...prev, fileId]
     );
   };
 
-  const activeList = currentView === 'gmail' ? gmailEmails : files;
+  const activeList = platform === 'gmail' ? gmailEmails : files;
   const displayedFiles = activeList
-    .filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                (f as any).from?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (f as any).snippet?.toLowerCase().includes(searchTerm.toLowerCase()))
+    .filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (f as any).from?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (f as any).snippet?.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
       const aSelected = selectedIds.includes(a.id);
       const bSelected = selectedIds.includes(b.id);
-      
+
       if (aSelected && !bSelected) return -1;
       if (!aSelected && bSelected) return 1;
       return 0;
@@ -411,15 +418,6 @@ function App() {
               <LayoutDashboard size={16} /> Dashboard
             </li>
             <li
-              className={`nav-item ${currentView === 'gmail' ? 'active' : ''}`}
-              onClick={() => {
-                setCurrentView("gmail");
-                fetchGmail();
-              }}
-            >
-              <Mail size={16} /> Gmail Inbox
-            </li>
-            <li
               className={`nav-item ${currentView === 'trash' ? 'active' : ''}`}
               onClick={() => {
                 setCurrentView("trash");
@@ -450,8 +448,8 @@ function App() {
         <main className="main-area">
           <header className="top-bar">
             <div className="breadcrumbs">
-              <h2>{currentView === 'dashboard' ? "Overview" : currentView === 'gmail' ? "Gmail Inbox" : currentView === 'trash' ? "Trash Bin" : "Settings"}</h2>
-              <span className="subtitle">{currentView === 'dashboard' ? "Dashboard" : currentView === 'gmail' ? "Emails" : currentView === 'trash' ? "Deleted Files" : "Preferences"}</span>
+              <h2>{currentView === 'dashboard' ? (platform === 'drive' ? "Drive Dashboard" : "Gmail Inbox") : currentView === 'trash' ? "Trash Bin" : "Settings"}</h2>
+              <span className="subtitle">{currentView === 'dashboard' ? "Overview" : currentView === 'trash' ? "Deleted Files" : "Preferences"}</span>
             </div>
 
             {!isConnected ? (
@@ -483,7 +481,7 @@ function App() {
                   <input type="range" min="100" max="1000" step="50" value={searchBatchSize} onChange={e => setSearchBatchSize(parseInt(e.target.value))} />
                 </div>
               </div>
-              
+
               <div className="settings-card glass-panel">
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} /> AI & Chat Preferences</h3>
                 <div className="setting-row">
@@ -508,182 +506,205 @@ function App() {
               <div className="settings-card glass-panel">
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Lock size={18} /> Account & Data</h3>
                 <button className="danger-button" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={async () => {
-                   try {
-                     await fetch("http://localhost:8000/api/logout", { method: "POST" });
-                   } catch (e) {
-                     console.error("Failed to call logout API", e);
-                   }
-                   setIsConnected(false);
-                   setFiles([]);
-                   setGmailEmails([]);
-                   setTrashFiles([]);
-                   setMessages([{ sender: 'ai', text: "Session disconnected. You can safely close this or connect another account." }]);
+                  try {
+                    await fetch("http://localhost:8000/api/logout", { method: "POST" });
+                  } catch (e) {
+                    console.error("Failed to call logout API", e);
+                  }
+                  setIsConnected(false);
+                  setFiles([]);
+                  setGmailEmails([]);
+                  setTrashFiles([]);
+                  setMessages([{ sender: 'ai', text: "Session disconnected. You can safely close this or connect another account." }]);
                 }}>Disconnect Google Drive</button>
               </div>
             </div>
           ) : (
-          <div className="dashboard-grid">
+            <div className="dashboard-grid">
 
-            <div className="panel files-panel glass-panel">
-              <div className="panel-header">
-                <h3>{currentView === 'dashboard' ? "Recent Files" : currentView === 'gmail' ? "Emails" : "Trash Bin"}</h3>
-                <div className="header-actions">
-                  <span className="panel-badge">{currentView === 'dashboard' ? files.length : currentView === 'gmail' ? gmailEmails.length : trashFiles.length} items</span>
-                  {(currentView === 'dashboard' || currentView === 'gmail') && selectedIds.length > 0 && (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="shadcn-button secondary" onClick={() => setSelectedIds([])}>Clear</button>
-                      <button
-                        className="danger-button"
-                        onClick={() => setShowConfirmModal(true)}
-                        disabled={isDeleting}
+              <div className="panel files-panel glass-panel">
+                <div className="panel-header" style={{ display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
+                    
+                    <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '8px' }}>
+                      <button 
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: platform === 'drive' ? 'rgba(255,255,255,0.1)' : 'transparent', color: '#fff', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: platform === 'drive' ? 600 : 400 }}
+                        onClick={() => {
+                          setPlatform('drive');
+                          if (files.length === 0) fetchFiles();
+                        }}
                       >
-                        {isDeleting ? <><Loader2 className="spin-animation" size={16} /> Trashing...</> : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
+                        <Cloud size={14} /> Google Drive
+                      </button>
+                      <button 
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: platform === 'gmail' ? 'rgba(255,255,255,0.1)' : 'transparent', color: '#fff', cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: platform === 'gmail' ? 600 : 400 }}
+                        onClick={() => {
+                          setPlatform('gmail');
+                          if (gmailEmails.length === 0) fetchGmail();
+                        }}
+                      >
+                        <Mail size={14} /> Gmail
                       </button>
                     </div>
-                  )}
-                  {currentView === 'trash' && trashFiles.length > 0 && (
-                    <button
-                      className="danger-button"
-                      onClick={() => setShowEmptyTrashModal(true)}
-                      disabled={isEmptyingTrash}
-                    >
-                      {isEmptyingTrash ? <><Loader2 className="spin-animation" size={16} /> Emptying...</> : <><Trash2 size={16} /> Empty Trash</>}
-                    </button>
+
+                    <div className="header-actions">
+                      <span className="panel-badge">{currentView === 'dashboard' ? (platform === 'drive' ? files.length : gmailEmails.length) : trashFiles.length} items</span>
+                      {currentView === 'dashboard' && selectedIds.length > 0 && (
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button className="shadcn-button secondary" onClick={() => setSelectedIds([])}>Clear</button>
+                          <button
+                            className="danger-button"
+                            onClick={() => setShowConfirmModal(true)}
+                            disabled={isDeleting}
+                          >
+                            {isDeleting ? <><Loader2 className="spin-animation" size={16} /> Trashing...</> : <><Trash2 size={16} /> Trash {selectedIds.length} Items</>}
+                          </button>
+                        </div>
+                      )}
+                      {currentView === 'trash' && trashFiles.length > 0 && (
+                        <button
+                          className="danger-button"
+                          onClick={() => setShowEmptyTrashModal(true)}
+                          disabled={isEmptyingTrash}
+                        >
+                          {isEmptyingTrash ? <><Loader2 className="spin-animation" size={16} /> Emptying...</> : <><Trash2 size={16} /> Empty Trash</>}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`panel-content ${!isConnected ? 'empty-state' : ''}`}>
+                  {!isConnected ? (
+                    <>
+                      <div className="empty-icon">🗂️</div>
+                      <p>Connect your drive to see files</p>
+                    </>
+                  ) : (currentView === 'dashboard' ? (platform === 'drive' ? isLoadingFiles : isLoadingEmails) : isLoadingTrash) ? (
+                    <div className="loading-spinner">{currentView === 'dashboard' ? (platform === 'drive' ? "Analyzing Drive..." : "Fetching Emails...") : "Loading Trash..."}</div>
+                  ) : (currentView === 'dashboard') ? (
+                    <>
+                      <div className="search-bar-container">
+                        <span className="search-icon"><Search size={16} /></span>
+                        <input
+                          type="text"
+                          className="search-input macos-input"
+                          placeholder={platform === 'gmail' ? "Search emails..." : "Search files..."}
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                      </div>
+                      <ul className="file-list">
+                        {displayedFiles.map((file) => {
+
+                          const isSelected = selectedIds.includes(file.id);
+                          const isEmail = file.mimeType === "application/vnd.google-apps.mail";
+
+                          return (
+                            <li
+                              key={file.id}
+                              className={`file-item ${isSelected ? 'selected-by-ai' : ''} ${isCompactMode ? 'compact' : ''}`}
+                              onClick={() => toggleFileSelection(file.id)}
+                            >
+                              <span className="file-icon">{isEmail ? <Mail size={20} color="rgba(255,255,255,0.7)" /> : getFileIcon(file.mimeType)}</span>
+                              <div className="file-details">
+                                <div className="file-name">{file.name}</div>
+                                {isEmail && (file as any).snippet && (
+                                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                    {(file as any).snippet}
+                                  </div>
+                                )}
+                                <span className="file-meta">
+                                  <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>
+                                    {isEmail ? (file as any).from : getReadableFileType(file.mimeType)}
+                                  </span> • {isEmail ? "" : `${formatBytes(file.size)} • `}{isEmail ? "Date" : "Modified"} {isEmail ? new Date(file.modifiedTime).toLocaleString() : new Date(file.modifiedTime).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <div className="file-actions">
+                                {file.webViewLink && (
+                                  <button
+                                    className="shadcn-icon-button"
+                                    onClick={(e) => { e.stopPropagation(); openUrl(file.webViewLink!); }}
+                                    title="Open in Browser"
+                                  >
+                                    <ArrowUpRight size={16} strokeWidth={2.5} />
+                                  </button>
+                                )}
+                                {isSelected && <span className="selection-badge">✓ Selected</span>}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  ) : (
+                    <ul className="file-list">
+                      {trashFiles.map((file) => (
+                        <li key={file.id} className={`file-item ${isCompactMode ? 'compact' : ''}`}>
+                          <span className="file-icon">{getFileIcon(file.mimeType)}</span>
+                          <div className="file-details">
+                            <div className="file-name">{file.name}</div>
+                            <span className="file-meta">
+                              <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div className="file-actions">
+                            <button
+                              className="shadcn-button secondary"
+                              onClick={(e) => { e.stopPropagation(); handleRestoreFile(file.id); }}
+                            >
+                              <RotateCcw size={14} /> Restore
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
               </div>
 
-              <div className={`panel-content ${!isConnected ? 'empty-state' : ''}`}>
-                {!isConnected ? (
-                  <>
-                    <div className="empty-icon">🗂️</div>
-                    <p>Connect your drive to see files</p>
-                  </>
-                ) : (currentView === 'dashboard' ? isLoadingFiles : currentView === 'gmail' ? isLoadingEmails : isLoadingTrash) ? (
-                  <div className="loading-spinner">{currentView === 'dashboard' ? "Analyzing Drive..." : currentView === 'gmail' ? "Fetching Emails..." : "Loading Trash..."}</div>
-                ) : (currentView === 'dashboard' || currentView === 'gmail') ? (
-                  <>
-                    <div className="search-bar-container">
-                      <span className="search-icon"><Search size={16} /></span>
-                      <input
-                        type="text"
-                        className="search-input macos-input"
-                        placeholder={currentView === 'gmail' ? "Search emails..." : "Search files..."}
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
+
+              <div className="panel ai-panel glass-panel">
+                <div className="panel-header">
+                  <h3>SmartClean Assistant (Gemini 3.5 Flash)</h3>
+                  <button
+                    className="shadcn-icon-button clear-chat-btn"
+                    onClick={() => {
+                      setMessages([{ sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }]);
+                      setSelectedIds([]);
+                    }}
+                    title="Clear Chat"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="chat-content">
+                  {messages.map((msg, idx) => (
+                    <div key={idx} className={`chat-bubble ${msg.sender}`}>
+                      {msg.sender === 'ai' ? <TypewriterText text={msg.text} speed={typewriterSpeed} /> : msg.text}
                     </div>
-                    <ul className="file-list">
-                      {displayedFiles.map((file) => {
-
-                        const isSelected = selectedIds.includes(file.id);
-                        const isEmail = file.mimeType === "application/vnd.google-apps.mail";
-
-                        return (
-                          <li 
-                            key={file.id} 
-                            className={`file-item ${isSelected ? 'selected-by-ai' : ''} ${isCompactMode ? 'compact' : ''}`}
-                            onClick={() => toggleFileSelection(file.id)}
-                          >
-                            <span className="file-icon">{isEmail ? <Mail size={20} color="rgba(255,255,255,0.7)" /> : getFileIcon(file.mimeType)}</span>
-                            <div className="file-details">
-                              <div className="file-name">{file.name}</div>
-                              {isEmail && (file as any).snippet && (
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                  {(file as any).snippet}
-                                </div>
-                              )}
-                              <span className="file-meta">
-                                <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>
-                                  {isEmail ? (file as any).from : getReadableFileType(file.mimeType)}
-                                </span> • {isEmail ? "" : `${formatBytes(file.size)} • `}{isEmail ? "Date" : "Modified"} {isEmail ? new Date(file.modifiedTime).toLocaleString() : new Date(file.modifiedTime).toLocaleDateString()}
-                              </span>
-                            </div>
-                            <div className="file-actions">
-                              {file.webViewLink && (
-                                <button
-                                  className="shadcn-icon-button"
-                                  onClick={(e) => { e.stopPropagation(); openUrl(file.webViewLink!); }}
-                                  title="Open in Browser"
-                                >
-                                  <ArrowUpRight size={16} strokeWidth={2.5} />
-                                </button>
-                              )}
-                              {isSelected && <span className="selection-badge">✓ Selected</span>}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </>
-                ) : (
-                  <ul className="file-list">
-                    {trashFiles.map((file) => (
-                      <li key={file.id} className={`file-item ${isCompactMode ? 'compact' : ''}`}>
-                        <span className="file-icon">{getFileIcon(file.mimeType)}</span>
-                        <div className="file-details">
-                          <div className="file-name">{file.name}</div>
-                          <span className="file-meta">
-                            <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div className="file-actions">
-                          <button
-                            className="shadcn-button secondary"
-                            onClick={(e) => { e.stopPropagation(); handleRestoreFile(file.id); }}
-                          >
-                            <RotateCcw size={14} /> Restore
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                  ))}
+                  {isThinking && (
+                    <div className="chat-bubble ai thinking">
+                      Thinking<span className="dots">...</span>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+                <div className="chat-input-area">
+                  <input
+                    type="text"
+                    className="macos-input"
+                    placeholder={isConnected ? "e.g., Select all presentations..." : "Connect Drive to chat..."}
+                    disabled={!isConnected || isThinking}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSendMessage();
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-
-
-            <div className="panel ai-panel glass-panel">
-              <div className="panel-header">
-                <h3>SmartClean Assistant (Gemini 3.5 Flash)</h3>
-                <button 
-                  className="shadcn-icon-button clear-chat-btn"
-                  onClick={() => {
-                    setMessages([{ sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }]);
-                    setSelectedIds([]);
-                  }}
-                  title="Clear Chat"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-              <div className="chat-content">
-                {messages.map((msg, idx) => (
-                  <div key={idx} className={`chat-bubble ${msg.sender}`}>
-                    {msg.sender === 'ai' ? <TypewriterText text={msg.text} speed={typewriterSpeed} /> : msg.text}
-                  </div>
-                ))}
-                {isThinking && (
-                  <div className="chat-bubble ai thinking">
-                    Thinking<span className="dots">...</span>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-              <div className="chat-input-area">
-                <input
-                  type="text"
-                  className="macos-input"
-                  placeholder={isConnected ? "e.g., Select all presentations..." : "Connect Drive to chat..."}
-                  disabled={!isConnected || isThinking}
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSendMessage();
-                  }}
-                />
-              </div>
-            </div>
             </div>
           )}
         </main>
