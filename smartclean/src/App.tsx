@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock } from "lucide-react";
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock, Mail } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -52,7 +52,9 @@ function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showEmptyTrashModal, setShowEmptyTrashModal] = useState(false);
   const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
-  const [currentView, setCurrentView] = useState<"dashboard" | "trash" | "settings">("dashboard");
+  const [currentView, setCurrentView] = useState<"dashboard" | "trash" | "settings" | "gmail">("dashboard");
+  const [gmailEmails, setGmailEmails] = useState<DriveFile[]>([]);
+  const [isLoadingEmails, setIsLoadingEmails] = useState(false);
   const [excludedExtensions, setExcludedExtensions] = useState<string>(
     () => localStorage.getItem('excludedExtensions') || ".wav, .flac, .logicx"
   );
@@ -141,6 +143,7 @@ function App() {
             setIsConnected(true);
             setMessages([{ sender: 'ai', text: "Drive connected successfully! I'm ready to analyze your files. What should we clean up?" }]);
             fetchFiles();
+            fetchGmail();
           } else if (!newlyConnected) {
             setIsConnected(false);
           }
@@ -176,6 +179,20 @@ function App() {
     return () => clearInterval(intervalId);
   }, [isConnected]);
 
+  const fetchGmail = async () => {
+    setIsLoadingEmails(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/gmail/emails");
+      if (res.ok) {
+        const data = await res.json();
+        setGmailEmails(data.files);
+      }
+    } catch (error) {
+      console.error("Error fetching Gmail:", error);
+    } finally {
+      setIsLoadingEmails(false);
+    }
+  };
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() || !isConnected || files.length === 0) return;
@@ -197,11 +214,23 @@ function App() {
         const data = await res.json();
         
         if (data.new_files && data.new_files.length > 0) {
-          setFiles(prev => {
-            const existingIds = new Set(prev.map(f => f.id));
-            const uniqueNew = data.new_files.filter((f: DriveFile) => !existingIds.has(f.id));
-            return [...uniqueNew, ...prev];
-          });
+          if (data.target_platform === "gmail") {
+            setGmailEmails(prev => {
+              const existingIds = new Set(prev.map(f => f.id));
+              const uniqueNew = data.new_files.filter((f: DriveFile) => !existingIds.has(f.id));
+              return [...uniqueNew, ...prev];
+            });
+            setCurrentView("gmail");
+          } else {
+            setFiles(prev => {
+              const existingIds = new Set(prev.map(f => f.id));
+              const uniqueNew = data.new_files.filter((f: DriveFile) => !existingIds.has(f.id));
+              return [...uniqueNew, ...prev];
+            });
+            setCurrentView("dashboard");
+          }
+        } else if (data.target_platform === "gmail") {
+           setCurrentView("gmail");
         }
         
         setSelectedIds(data.selected_ids || []);
@@ -244,26 +273,33 @@ function App() {
     setShowConfirmModal(false);
     setIsDeleting(true);
 
+    const isGmail = currentView === 'gmail';
+    const endpoint = isGmail ? "http://localhost:8000/api/gmail/trash" : "http://localhost:8000/api/delete";
+    const payloadKey = isGmail ? "email_ids" : "file_ids";
+
     try {
-      const res = await fetch("http://localhost:8000/api/delete", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_ids: selectedIds })
+        body: JSON.stringify({ [payloadKey]: selectedIds })
       });
 
       if (res.ok) {
         const data = await res.json();
-        setMessages(prev => [...prev, { sender: 'ai', text: `✅ Done! Moved ${data.deleted_count} files to Trash.` }]);
+        setMessages(prev => [...prev, { sender: 'ai', text: `✅ Done! Moved ${data.deleted_count} items to Trash.` }]);
         setSelectedIds([]);
 
-
-        const fetchRes = await fetch("http://localhost:8000/api/files");
-        if (fetchRes.ok) {
-          const fileData = await fetchRes.json();
-          setFiles(fileData.files);
+        if (isGmail) {
+          fetchGmail();
+        } else {
+          const fetchRes = await fetch("http://localhost:8000/api/files");
+          if (fetchRes.ok) {
+            const fileData = await fetchRes.json();
+            setFiles(fileData.files);
+          }
         }
       } else {
-        setMessages(prev => [...prev, { sender: 'ai', text: "Error: Could not trash the files." }]);
+        setMessages(prev => [...prev, { sender: 'ai', text: "Error: Could not trash the items." }]);
       }
     } catch (error) {
       setMessages(prev => [...prev, { sender: 'ai', text: "Connection error during delete." }]);
@@ -316,8 +352,11 @@ function App() {
     );
   };
 
-  const displayedFiles = files
-    .filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const activeList = currentView === 'gmail' ? gmailEmails : files;
+  const displayedFiles = activeList
+    .filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                (f as any).from?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (f as any).snippet?.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
       const aSelected = selectedIds.includes(a.id);
       const bSelected = selectedIds.includes(b.id);
@@ -372,6 +411,15 @@ function App() {
               <LayoutDashboard size={16} /> Dashboard
             </li>
             <li
+              className={`nav-item ${currentView === 'gmail' ? 'active' : ''}`}
+              onClick={() => {
+                setCurrentView("gmail");
+                fetchGmail();
+              }}
+            >
+              <Mail size={16} /> Gmail Inbox
+            </li>
+            <li
               className={`nav-item ${currentView === 'trash' ? 'active' : ''}`}
               onClick={() => {
                 setCurrentView("trash");
@@ -402,8 +450,8 @@ function App() {
         <main className="main-area">
           <header className="top-bar">
             <div className="breadcrumbs">
-              <h2>{currentView === 'dashboard' ? "Overview" : currentView === 'trash' ? "Trash Bin" : "Settings"}</h2>
-              <span className="subtitle">{currentView === 'dashboard' ? "Dashboard" : currentView === 'trash' ? "Deleted Files" : "Preferences"}</span>
+              <h2>{currentView === 'dashboard' ? "Overview" : currentView === 'gmail' ? "Gmail Inbox" : currentView === 'trash' ? "Trash Bin" : "Settings"}</h2>
+              <span className="subtitle">{currentView === 'dashboard' ? "Dashboard" : currentView === 'gmail' ? "Emails" : currentView === 'trash' ? "Deleted Files" : "Preferences"}</span>
             </div>
 
             {!isConnected ? (
@@ -467,6 +515,7 @@ function App() {
                    }
                    setIsConnected(false);
                    setFiles([]);
+                   setGmailEmails([]);
                    setTrashFiles([]);
                    setMessages([{ sender: 'ai', text: "Session disconnected. You can safely close this or connect another account." }]);
                 }}>Disconnect Google Drive</button>
@@ -477,10 +526,10 @@ function App() {
 
             <div className="panel files-panel glass-panel">
               <div className="panel-header">
-                <h3>{currentView === 'dashboard' ? "Recent Files" : "Trash Bin"}</h3>
+                <h3>{currentView === 'dashboard' ? "Recent Files" : currentView === 'gmail' ? "Emails" : "Trash Bin"}</h3>
                 <div className="header-actions">
-                  <span className="panel-badge">{currentView === 'dashboard' ? files.length : trashFiles.length} items</span>
-                  {currentView === 'dashboard' && selectedIds.length > 0 && (
+                  <span className="panel-badge">{currentView === 'dashboard' ? files.length : currentView === 'gmail' ? gmailEmails.length : trashFiles.length} items</span>
+                  {(currentView === 'dashboard' || currentView === 'gmail') && selectedIds.length > 0 && (
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button className="shadcn-button secondary" onClick={() => setSelectedIds([])}>Clear</button>
                       <button
@@ -510,16 +559,16 @@ function App() {
                     <div className="empty-icon">🗂️</div>
                     <p>Connect your drive to see files</p>
                   </>
-                ) : (currentView === 'dashboard' ? isLoadingFiles : isLoadingTrash) ? (
-                  <div className="loading-spinner">{currentView === 'dashboard' ? "Analyzing Drive..." : "Loading Trash..."}</div>
-                ) : currentView === 'dashboard' ? (
+                ) : (currentView === 'dashboard' ? isLoadingFiles : currentView === 'gmail' ? isLoadingEmails : isLoadingTrash) ? (
+                  <div className="loading-spinner">{currentView === 'dashboard' ? "Analyzing Drive..." : currentView === 'gmail' ? "Fetching Emails..." : "Loading Trash..."}</div>
+                ) : (currentView === 'dashboard' || currentView === 'gmail') ? (
                   <>
                     <div className="search-bar-container">
                       <span className="search-icon"><Search size={16} /></span>
                       <input
                         type="text"
                         className="search-input macos-input"
-                        placeholder="Search files..."
+                        placeholder={currentView === 'gmail' ? "Search emails..." : "Search files..."}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
@@ -528,6 +577,7 @@ function App() {
                       {displayedFiles.map((file) => {
 
                         const isSelected = selectedIds.includes(file.id);
+                        const isEmail = file.mimeType === "application/vnd.google-apps.mail";
 
                         return (
                           <li 
@@ -535,11 +585,18 @@ function App() {
                             className={`file-item ${isSelected ? 'selected-by-ai' : ''} ${isCompactMode ? 'compact' : ''}`}
                             onClick={() => toggleFileSelection(file.id)}
                           >
-                            <span className="file-icon">{getFileIcon(file.mimeType)}</span>
+                            <span className="file-icon">{isEmail ? <Mail size={20} color="rgba(255,255,255,0.7)" /> : getFileIcon(file.mimeType)}</span>
                             <div className="file-details">
                               <div className="file-name">{file.name}</div>
+                              {isEmail && (file as any).snippet && (
+                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                  {(file as any).snippet}
+                                </div>
+                              )}
                               <span className="file-meta">
-                                <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>{getReadableFileType(file.mimeType)}</span> • {formatBytes(file.size)} • Modified {new Date(file.modifiedTime).toLocaleDateString()}
+                                <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 500 }}>
+                                  {isEmail ? (file as any).from : getReadableFileType(file.mimeType)}
+                                </span> • {isEmail ? "" : `${formatBytes(file.size)} • `}{isEmail ? "Date" : "Modified"} {isEmail ? new Date(file.modifiedTime).toLocaleString() : new Date(file.modifiedTime).toLocaleDateString()}
                               </span>
                             </div>
                             <div className="file-actions">

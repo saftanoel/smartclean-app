@@ -46,7 +46,7 @@ else:
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback")
-SCOPES = 'https://www.googleapis.com/auth/drive'
+SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.modify'
 
 # Configurare Gemini AI
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -75,7 +75,7 @@ async def login():
         f"client_id={CLIENT_ID}&"
         f"redirect_uri={REDIRECT_URI}&"
         f"response_type=code&"
-        f"scope={SCOPES}&"
+        f"scope={SCOPES.replace(' ', '%20')}&"
         f"access_type=offline&"
         f"prompt=consent"
     )
@@ -171,21 +171,25 @@ async def process_chat(request: ChatRequest):
         
     try:
         system_instruction = """
-        You are SmartClean, an advanced AI for Google Drive management.
-        You receive a user request, a JSON list of recent files, and thumbnails.
+        You are SmartClean, an advanced dual-agent AI for Google Drive and Gmail management.
+        You receive a user request, a JSON list of recent files or emails, and thumbnails (if applicable).
         
-        You have TWO modes of operation. Decide which one fits best:
+        You have THREE modes of operation. Decide which one fits best:
         
-        MODE 1 (VISUAL/LOCAL): If the request requires analyzing image content (e.g., "blurry photos", "handwritten notes", "screenshots"), look at the provided files and thumbnails. Return "selected_ids" from the provided list, and set "drive_query" to null.
+        MODE 1 (DRIVE VISUAL/LOCAL): If the request requires analyzing image content in Drive, look at the provided files and thumbnails. Return "selected_ids" from the provided list, and set "drive_query" to null. Set "target_platform" to "drive".
         
-        MODE 2 (GLOBAL SEARCH): If the request asks to find all files of a certain format/type globally (e.g., "all mp3s", "all pdfs", "all videos"), DO NOT rely on the provided list. Set "drive_query" to a valid Google Drive API query string (e.g., "mimeType contains 'audio/'" or "name contains '.mp3'"). Set "selected_ids" to [].
+        MODE 2 (DRIVE GLOBAL SEARCH): If the request asks to find all Drive files of a certain format/type globally, DO NOT rely on the provided list. Set "drive_query" to a valid Google Drive API query string. Set "selected_ids" to []. Set "target_platform" to "drive".
+        
+        MODE 3 (GMAIL SEARCH): If the user asks to delete emails, newsletters, spam, or old messages, set "target_platform" to "gmail" and generate a valid Gmail search query in "drive_query" (e.g., "older_than:1y", "from:newsletter@example.com", "has:attachment"). Set "selected_ids" to []. Keep using the field name "drive_query" for backwards compatibility, but it will hold the Gmail query.
         
         Return ONLY valid JSON with this exact structure:
         {
           "reply": "friendly explanation of what you did",
           "selected_ids": ["id1", "id2"],
-          "drive_query": "query string or null"
+          "drive_query": "query string or null",
+          "target_platform": "drive"
         }
+        (Note: target_platform can be 'drive' or 'gmail')
         """
         
         gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -240,28 +244,82 @@ async def process_chat(request: ChatRequest):
             print(f"🔎 Căutare globală cerută de AI: {data['drive_query']}")
             try:
                 creds = Credentials(token=token)
-                service = build('drive', 'v3', credentials=creds)
+                target_platform = data.get("target_platform", "drive")
                 
-                final_q = f"({data['drive_query']}) and trashed = false"
-                
-                results = service.files().list(
-                    pageSize=500,
-                    fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
-                    orderBy="modifiedTime desc",
-                    q=final_q
-                ).execute()
-                
-                new_files = results.get('files', [])
-                data["new_files"] = new_files
-                data["selected_ids"] = [f["id"] for f in new_files]
-                
-                if new_files:
-                    data["reply"] += f" (Am scanat cloud-ul și am extras {len(new_files)} rezultate relevante pe care le-am adus în listă)."
+                if target_platform == "gmail":
+                    service = build('gmail', 'v1', credentials=creds)
+                    final_q = f"({data['drive_query']}) -in:trash"
+                    
+                    results = service.users().messages().list(
+                        userId='me',
+                        q=final_q,
+                        maxResults=500
+                    ).execute()
+                    
+                    messages = results.get('messages', [])
+                    
+                    if messages:
+                        async with httpx.AsyncClient() as http_client:
+                            sem = asyncio.Semaphore(50)
+                            async def fetch_with_sem(msg):
+                                async with sem:
+                                    return await http_client.get(
+                                        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg['id']}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
+                                        headers={"Authorization": f"Bearer {token}"}
+                                    )
+                            
+                            fetch_tasks = [fetch_with_sem(msg) for msg in messages]
+                            responses = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+                            
+                            new_files = []
+                            for msg, resp in zip(messages, responses):
+                                if not isinstance(resp, Exception) and getattr(resp, 'status_code', None) == 200:
+                                    msg_data = resp.json()
+                                    headers = msg_data.get('payload', {}).get('headers', [])
+                                    subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '(No Subject)')
+                                    from_sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
+                                    date_str = next((h['value'] for h in headers if h['name'] == 'Date'), '')
+                                    
+                                    new_files.append({
+                                        "id": msg['id'],
+                                        "name": subject,
+                                        "mimeType": "application/vnd.google-apps.mail",
+                                        "webViewLink": f"https://mail.google.com/mail/u/0/#inbox/{msg['id']}",
+                                        "from": from_sender,
+                                        "snippet": msg_data.get('snippet', ''),
+                                        "modifiedTime": date_str
+                                    })
+                        data["new_files"] = new_files
+                        data["selected_ids"] = [f["id"] for f in new_files]
+                        data["reply"] += f" (Am scanat inbox-ul și am extras {len(new_files)} emailuri relevante)."
+                    else:
+                        data["new_files"] = []
+                        data["selected_ids"] = []
+                        data["reply"] += " (Nu am găsit emailuri relevante)."
+                        
                 else:
-                    data["reply"] += " (Nu am găsit nimic relevant în tot contul)."
+                    service = build('drive', 'v3', credentials=creds)
+                    
+                    final_q = f"({data['drive_query']}) and trashed = false"
+                    
+                    results = service.files().list(
+                        pageSize=500,
+                        fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
+                        orderBy="modifiedTime desc",
+                        q=final_q
+                    ).execute()
+                    
+                    new_files = results.get('files', [])
+                    data["new_files"] = new_files
+                    data["selected_ids"] = [f["id"] for f in new_files]
+                    
+                    if new_files:
+                        data["reply"] += f" (Am scanat cloud-ul și am extras {len(new_files)} rezultate relevante pe care le-am adus în listă)."
+                    else:
+                        data["reply"] += " (Nu am găsit nimic relevant în tot contul)."
                     
             except Exception as query_err:
-                print(f"Eroare la Google Drive API Query: {query_err}")
+                print(f"Eroare la Google API Query: {query_err}")
                 data["reply"] += " (Eroare la construirea comenzii globale)."
                 data["new_files"] = []
         else:
@@ -400,6 +458,108 @@ async def restore_files(request: RestoreRequest):
     except Exception as e:
         print(f"Error restoring files: {e}")
         raise HTTPException(status_code=500, detail="Eroare la restaurarea fisierelor.")
+
+
+@app.get("/api/gmail/emails")
+async def get_gmail_emails():
+    token = SESSION_STORE.get("default_user")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    try:
+        creds = Credentials(token=token)
+        service = build('gmail', 'v1', credentials=creds)
+        
+        results = service.users().messages().list(
+            userId='me',
+            q="-in:trash",
+            maxResults=500
+        ).execute()
+        
+        messages = results.get('messages', [])
+        if not messages:
+            return {"files": []}
+            
+        async with httpx.AsyncClient() as http_client:
+            sem = asyncio.Semaphore(50)
+            async def fetch_with_sem(msg):
+                async with sem:
+                    return await http_client.get(
+                        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg['id']}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
+                        headers={"Authorization": f"Bearer {token}"}
+                    )
+                    
+            fetch_tasks = [fetch_with_sem(msg) for msg in messages]
+            responses = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+            
+            email_list = []
+            for msg, resp in zip(messages, responses):
+                if not isinstance(resp, Exception) and getattr(resp, 'status_code', None) == 200:
+                    msg_data = resp.json()
+                    headers = msg_data.get('payload', {}).get('headers', [])
+                    subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '(No Subject)')
+                    from_sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
+                    date_str = next((h['value'] for h in headers if h['name'] == 'Date'), '')
+                    
+                    email_list.append({
+                        "id": msg['id'],
+                        "name": subject,
+                        "mimeType": "application/vnd.google-apps.mail",
+                        "webViewLink": f"https://mail.google.com/mail/u/0/#inbox/{msg['id']}",
+                        "from": from_sender,
+                        "snippet": msg_data.get('snippet', ''),
+                        "modifiedTime": date_str
+                    })
+                    
+        return {"files": email_list}
+        
+    except Exception as e:
+        print(f"Eroare la aducerea emailurilor: {e}")
+        raise HTTPException(status_code=500, detail="Eroare la aducerea emailurilor")
+
+
+class GmailDeleteRequest(BaseModel):
+    email_ids: list[str]
+
+@app.post("/api/gmail/trash")
+async def delete_gmail_emails(request: GmailDeleteRequest):
+    token = SESSION_STORE.get("default_user")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    try:
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        deleted_count = 0
+        
+        async with httpx.AsyncClient() as client:
+            chunk_size = 50
+            print(f"🗑️ Mutam {len(request.email_ids)} emailuri in trash (Batch processing async)...")
+            
+            for i in range(0, len(request.email_ids), chunk_size):
+                chunk_ids = request.email_ids[i:i + chunk_size]
+                tasks = []
+                
+                for email_id in chunk_ids:
+                    url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{email_id}/trash"
+                    tasks.append(client.post(url, headers=headers))
+                    
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for resp in responses:
+                    if not isinstance(resp, Exception) and getattr(resp, 'status_code', None) == 200:
+                        deleted_count += 1
+                        
+        return {
+            "message": f"Successfully moved {deleted_count} emails to Trash.", 
+            "deleted_count": deleted_count
+        }
+        
+    except Exception as e:
+        print(f"Error trashing emails: {e}")
+        raise HTTPException(status_code=500, detail="Eroare la stergerea emailurilor.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

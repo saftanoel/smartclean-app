@@ -34,10 +34,6 @@ Wrapped in a beautiful, native-feeling macOS "liquid glass" UI, SmartClean acts 
 *   **🔐 Secure Architecture:** Uses OAuth 2.0. Authentication tokens are handled securely, and users can revoke app access at any time. The Python backend is compiled into a standalone, secure binary sidecar using PyInstaller.
 *   **💎 Native macOS Feel:** Built with Tauri, featuring a frameless window, transparent title bars, and a heavily optimized Glassmorphism UI that beautifully blurs your actual desktop wallpaper using `window-vibrancy`.
 
----
-
-
----
 
 ## 🛠️ Tech Stack
 
