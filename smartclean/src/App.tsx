@@ -159,6 +159,9 @@ function App() {
         if (res.ok) {
           const data = await res.json();
           setFiles(data.files);
+        } else if (res.status === 401) {
+          setIsConnected(false);
+          setFiles([]);
         }
       } catch (error) {
         console.error("Eroare la aducerea fișierelor:", error);
@@ -456,11 +459,16 @@ function App() {
 
               <div className="settings-card glass-panel">
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Lock size={18} /> Account & Data</h3>
-                <button className="danger-button" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => {
+                <button className="danger-button" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={async () => {
+                   try {
+                     await fetch("http://localhost:8000/api/logout", { method: "POST" });
+                   } catch (e) {
+                     console.error("Failed to call logout API", e);
+                   }
                    setIsConnected(false);
                    setFiles([]);
                    setTrashFiles([]);
-                   setMessages([{ sender: 'ai', text: "Session disconnected." }]);
+                   setMessages([{ sender: 'ai', text: "Session disconnected. You can safely close this or connect another account." }]);
                 }}>Disconnect Google Drive</button>
               </div>
             </div>
