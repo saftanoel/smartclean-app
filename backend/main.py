@@ -4,18 +4,17 @@ import httpx
 import json
 import re
 import base64 
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
-
+import sys
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google import genai
 from google.genai import types
-
-load_dotenv()
 
 app = FastAPI(title="SmartClean API")
 
@@ -32,6 +31,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if getattr(sys, 'frozen', False):
+    bundle_dir = sys._MEIPASS
+else:
+    bundle_dir = os.path.dirname(os.path.abspath(__file__))
+
+env_path = os.path.join(bundle_dir, '.env')
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    load_dotenv()
 
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -51,6 +61,12 @@ async def health_check():
 async def api_status():
     is_connected = "default_user" in SESSION_STORE
     return {"is_connected": is_connected}
+
+@app.post("/api/logout")
+async def logout():
+    if "default_user" in SESSION_STORE:
+        del SESSION_STORE["default_user"]
+    return {"message": "Logged out successfully"}
 
 @app.get("/auth/login")
 async def login():
@@ -137,7 +153,10 @@ async def get_files():
         
     except Exception as e:
         print(f"Eroare la aducerea fisierelor: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Daca token-ul este expirat/invalid, il stergem din sesiune
+        if "default_user" in SESSION_STORE:
+            del SESSION_STORE["default_user"]
+        raise HTTPException(status_code=401, detail="Token expirat sau invalid")
 
 
 class ChatRequest(BaseModel):
@@ -381,3 +400,6 @@ async def restore_files(request: RestoreRequest):
     except Exception as e:
         print(f"Error restoring files: {e}")
         raise HTTPException(status_code=500, detail="Eroare la restaurarea fisierelor.")
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
