@@ -49,9 +49,20 @@ This project uses a decoupled, highly performant full-stack architecture:
 
 ---
 
-## 🚀 Getting Started (Local Development)
+## 📦 Installation (For End Users)
 
-Follow these steps to set up and run the **SmartClean** application on your local machine.
+The easiest way to start using SmartClean is to simply download the pre-compiled application:
+
+1. Go to the [Releases](https://github.com/saftanoel/smartclean-app/releases) page.
+2. Download the latest `.dmg` or `.app.zip` file for macOS.
+3. Open the `.dmg` and drag **SmartClean** to your Applications folder.
+4. Open the app and connect your Google Account!
+
+---
+
+## 💻 Local Development (For Developers)
+
+If you want to contribute, modify the code, or build the app from source, follow these steps:
 
 ### Prerequisites
 
