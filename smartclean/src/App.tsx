@@ -156,29 +156,31 @@ function App() {
       }
     };
 
-    const fetchFiles = async () => {
-      setIsLoadingFiles(true);
-      try {
-        const res = await fetch("http://localhost:8000/api/files");
-        if (res.ok) {
-          const data = await res.json();
-          setFiles(data.files);
-        } else if (res.status === 401) {
-          setIsConnected(false);
-          setFiles([]);
-        }
-      } catch (error) {
-        console.error("Eroare la aducerea fișierelor:", error);
-      } finally {
-        setIsLoadingFiles(false);
-      }
-    };
+
 
     checkStatus();
     intervalId = setInterval(checkStatus, 3000);
 
     return () => clearInterval(intervalId);
   }, [isConnected]);
+
+  const fetchFiles = async () => {
+    setIsLoadingFiles(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/files");
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files);
+      } else if (res.status === 401) {
+        setIsConnected(false);
+        setFiles([]);
+      }
+    } catch (error) {
+      console.error("Eroare la aducerea fișierelor:", error);
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  };
 
   const fetchGmail = async () => {
     setIsLoadingEmails(true);

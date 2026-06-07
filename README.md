@@ -14,19 +14,20 @@
   <img src="https://img.shields.io/badge/css3-%231572B6.svg?style=for-the-badge&logo=css3&logoColor=white" alt="CSS3" />
 </p>
 
-**SmartClean** is a modern, AI-driven macOS desktop application designed to solve cloud storage clutter. Instead of clicking through clunky filters and endless dropdowns to find old or heavy files, SmartClean introduces a **Text-to-Action** paradigm. You simply tell the AI what to delete, and it handles the complex API queries for you.
+**SmartClean** is a modern, AI-driven macOS desktop application designed to solve cloud storage and inbox clutter. Instead of clicking through clunky filters and endless dropdowns to find old or heavy files, SmartClean introduces a **Text-to-Action** paradigm. You simply tell the AI what to delete, and it handles the complex API queries for you.
 
-Wrapped in a beautiful, native-feeling macOS "liquid glass" UI, SmartClean acts as a smart intermediary between your natural language intentions and the Google Drive API.
+Wrapped in a beautiful, native-feeling macOS "liquid glass" UI, SmartClean acts as a smart intermediary between your natural language intentions and the Google Drive and Gmail APIs.
 
 ---
 
 
 ## 🚀 Features
 
-*   **🤖 Text-to-Action AI:** Type commands like *"Find and delete all mp3 files older than 2023"* or *"Show me all PDF duplicates."* The integrated **Google Gemini 2.5 Flash** LLM translates your prompt into precise Google Drive API queries.
+*   **🤖 Text-to-Action AI:** Type commands like *"Find and delete all mp3 files older than 2023"* or *"Delete all promotional emails from last month."* The integrated **Google Gemini 2.5 Flash** LLM translates your prompt into precise Google Drive and Gmail API queries.
 *   **🛡️ Safety First:** SmartClean never deletes anything automatically. It performs a dry run, displays the targeted files in a clean UI for your review, and requires manual confirmation before moving files to the Trash.
 *   **⚡ Smart Batching:** Safely handles rate-limits and large operations by paginating API requests (e.g., deleting files in batches to respect Google's limits).
 *   **🔐 Secure Architecture:** Uses OAuth 2.0. Authentication tokens are handled securely, and users can revoke app access at any time. The Python backend is compiled into a standalone, secure binary sidecar using PyInstaller.
+*   **📧 Dual-Agent Seamless Toggle:** Instantly switch between managing Google Drive files and Gmail messages from a unified, premium dashboard. The AI will even automatically switch the view for you depending on your prompt.
 *   **💎 Native macOS Feel:** Built with Tauri, featuring a frameless window, transparent title bars, and a heavily optimized Glassmorphism UI that beautifully blurs your actual desktop wallpaper using `window-vibrancy`.
 
 
