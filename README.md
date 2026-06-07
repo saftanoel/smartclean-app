@@ -1,5 +1,4 @@
 # ✨ SmartClean
-WORK IN PROGRESS
 
 <p align="left">
   <img src="https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0" alt="macOS" />
@@ -21,6 +20,12 @@ Wrapped in a beautiful, native-feeling macOS "liquid glass" UI, SmartClean acts 
 
 ---
 
+## 🔮 Roadmap / Future Plans
+
+*   **📧 Gmail Integration:** Expand the AI Text-to-Action capabilities to your inbox. Soon, you will be able to delete spam, clear out old promotional emails, and manage your inbox just as easily as your Google Drive.
+*   **⚙️ Advanced AI Agent:** Enhance the backend to execute multi-step tool calls for more complex storage and email management workflows.
+
+
 ## 🚀 Features
 
 *   **🤖 Text-to-Action AI:** Type commands like *"Find and delete all mp3 files older than 2023"* or *"Show me all PDF duplicates."* The integrated **Google Gemini 2.5 Flash** LLM translates your prompt into precise Google Drive API queries.
@@ -31,10 +36,6 @@ Wrapped in a beautiful, native-feeling macOS "liquid glass" UI, SmartClean acts 
 
 ---
 
-## 🔮 Roadmap / Future Plans
-
-*   **📧 Gmail Integration:** Expand the AI Text-to-Action capabilities to your inbox. Soon, you will be able to delete spam, clear out old promotional emails, and manage your inbox just as easily as your Google Drive.
-*   **⚙️ Advanced AI Agent:** Enhance the backend to execute multi-step tool calls for more complex storage and email management workflows.
 
 ---
 
