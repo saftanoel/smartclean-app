@@ -132,10 +132,10 @@ function App() {
 
     const checkStatus = async () => {
       try {
-        const healthRes = await fetch("http://localhost:8000/health");
+        const healthRes = await fetch("http://localhost:14201/health");
         if (healthRes.ok) {
           setApiStatus("connected");
-          const statusRes = await fetch("http://localhost:8000/api/status");
+          const statusRes = await fetch("http://localhost:14201/api/status");
           const statusData = await statusRes.json();
 
           const newlyConnected = statusData.is_connected;
@@ -167,7 +167,7 @@ function App() {
   const fetchFiles = async () => {
     setIsLoadingFiles(true);
     try {
-      const res = await fetch("http://localhost:8000/api/files");
+      const res = await fetch("http://localhost:14201/api/files");
       if (res.ok) {
         const data = await res.json();
         setFiles(data.files);
@@ -185,7 +185,7 @@ function App() {
   const fetchGmail = async () => {
     setIsLoadingEmails(true);
     try {
-      const res = await fetch("http://localhost:8000/api/gmail/emails");
+      const res = await fetch("http://localhost:14201/api/gmail/emails");
       if (res.ok) {
         const data = await res.json();
         setGmailEmails(data.files);
@@ -207,7 +207,7 @@ function App() {
     setSelectedIds([]);
 
     try {
-      const res = await fetch("http://localhost:8000/api/chat", {
+      const res = await fetch("http://localhost:14201/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: userText, files: files })
@@ -259,7 +259,7 @@ function App() {
     setIsEmptyingTrash(true);
 
     try {
-      const res = await fetch("http://localhost:8000/api/trash/empty", {
+      const res = await fetch("http://localhost:14201/api/trash/empty", {
         method: "DELETE"
       });
 
@@ -283,7 +283,7 @@ function App() {
     setIsDeleting(true);
 
     const isGmail = platform === 'gmail';
-    const endpoint = isGmail ? "http://localhost:8000/api/gmail/trash" : "http://localhost:8000/api/delete";
+    const endpoint = isGmail ? "http://localhost:14201/api/gmail/trash" : "http://localhost:14201/api/delete";
     const payloadKey = isGmail ? "email_ids" : "file_ids";
 
     try {
@@ -301,7 +301,7 @@ function App() {
         if (isGmail) {
           fetchGmail();
         } else {
-          const fetchRes = await fetch("http://localhost:8000/api/files");
+          const fetchRes = await fetch("http://localhost:14201/api/files");
           if (fetchRes.ok) {
             const fileData = await fetchRes.json();
             setFiles(fileData.files);
@@ -320,7 +320,7 @@ function App() {
   const fetchTrashFiles = async () => {
     setIsLoadingTrash(true);
     try {
-      const res = await fetch("http://localhost:8000/api/trash");
+      const res = await fetch("http://localhost:14201/api/trash");
       if (res.ok) {
         const data = await res.json();
         setTrashFiles(data.files);
@@ -334,7 +334,7 @@ function App() {
 
   const handleRestoreFile = async (fileId: string) => {
     try {
-      const res = await fetch("http://localhost:8000/api/restore", {
+      const res = await fetch("http://localhost:14201/api/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ file_ids: [fileId] })
@@ -457,7 +457,7 @@ function App() {
             {!isConnected ? (
               <button
                 className="macos-button connect-button"
-                onClick={async () => await openUrl('http://localhost:8000/auth/login')}
+                onClick={async () => await openUrl('http://localhost:14201/auth/login')}
               >
                 <span className="icon"><Cloud size={16} /></span>
                 Connect to Drive

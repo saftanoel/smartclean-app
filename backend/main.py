@@ -45,7 +45,7 @@ else:
 
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/callback")
+REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:14201/auth/callback")
 SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.modify'
 
 # Configurare Gemini AI
@@ -564,4 +564,4 @@ async def delete_gmail_emails(request: GmailDeleteRequest):
         raise HTTPException(status_code=500, detail="Eroare la stergerea emailurilor.")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=14201)
