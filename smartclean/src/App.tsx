@@ -342,7 +342,7 @@ function App() {
 
       if (res.ok) {
         setTrashFiles(prev => prev.filter(f => f.id !== fileId));
-        const fetchRes = await fetch("http://localhost:8000/api/files");
+        const fetchRes = await fetch("http://localhost:14201/api/files");
         if (fetchRes.ok) {
           const fileData = await fetchRes.json();
           setFiles(fileData.files);
@@ -509,7 +509,7 @@ function App() {
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Lock size={18} /> Account & Data</h3>
                 <button className="danger-button" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={async () => {
                   try {
-                    await fetch("http://localhost:8000/api/logout", { method: "POST" });
+                    await fetch("http://localhost:14201/api/logout", { method: "POST" });
                   } catch (e) {
                     console.error("Failed to call logout API", e);
                   }
