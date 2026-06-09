@@ -322,7 +322,8 @@ async def process_chat(request: ChatRequest):
                     
             except Exception as query_err:
                 print(f"Eroare la Google API Query: {query_err}")
-                data["reply"] += " (Eroare la construirea comenzii globale)."
+                # Attach the exact error to the UI response so the user can debug it
+                data["reply"] += f" (Eroare API: {str(query_err)})."
                 data["new_files"] = []
         else:
             data["new_files"] = []
