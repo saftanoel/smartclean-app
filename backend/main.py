@@ -239,7 +239,16 @@ async def process_chat(request: ChatRequest):
         
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         clean_text = match.group(0) if match else raw_text.strip()
-        data = json.loads(clean_text)
+        try:
+            data = json.loads(clean_text)
+        except json.JSONDecodeError:
+            print(f"Eroare la parsarea JSON-ului generat de AI: {clean_text}")
+            data = {
+                "reply": raw_text,
+                "selected_ids": [],
+                "drive_query": None,
+                "target_platform": "drive"
+            }
         
         # MAGIA HIBRIDĂ: Executăm query-ul global cerut de AI
         if data.get("drive_query"):
@@ -367,7 +376,7 @@ async def delete_files(request: DeleteRequest):
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
                 
                 for resp in responses:
-                    if not isinstance(resp, Exception) and getattr(resp, 'status_code', None) == 200:
+                    if not isinstance(resp, Exception) and getattr(resp, 'status_code', 500) < 300:
                         deleted_count += 1
                         
         return {
@@ -552,7 +561,7 @@ async def delete_gmail_emails(request: GmailDeleteRequest):
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
                 
                 for resp in responses:
-                    if not isinstance(resp, Exception) and getattr(resp, 'status_code', None) == 200:
+                    if not isinstance(resp, Exception) and getattr(resp, 'status_code', 500) < 300:
                         deleted_count += 1
                         
         return {
