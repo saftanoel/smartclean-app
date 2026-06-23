@@ -83,52 +83,55 @@ async def login():
 
 @app.get("/auth/callback")
 async def callback(code: str):
-    token_url = "https://oauth2.googleapis.com/token"
-    payload = {
-        "code": code,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-        "redirect_uri": REDIRECT_URI,
-        "grant_type": "authorization_code"
-    }
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.post(token_url, data=payload)
-        token_data = response.json()
+    try:
+        token_url = "https://oauth2.googleapis.com/token"
+        payload = {
+            "code": code,
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "redirect_uri": REDIRECT_URI,
+            "grant_type": "authorization_code"
+        }
         
-    if "access_token" in token_data:
-        SESSION_STORE["default_user"] = token_data["access_token"]
-        print("\nToken salvat in sesiune cu succes!\n")
-        
-        html_content = """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>SmartClean - Connected</title>
-            <style>
-                body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; background-image: radial-gradient(circle at 50% 0%, #2a2a35 0%, #121212 70%); height: 100vh; display: flex; align-items: center; justify-content: center; color: #ffffff; }
-                .glass-card { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 40px 50px; text-align: center; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5); max-width: 400px; animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
-                h1 { margin: 0 0 10px 0; font-size: 24px; font-weight: 600; letter-spacing: -0.5px; }
-                p { margin: 0; color: #a0a0a5; font-size: 15px; line-height: 1.5; }
-                .sub-text { margin-top: 25px; font-size: 13px; color: #666; }
-                @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-            </style>
-        </head>
-        <body>
-            <div class="glass-card">
-                <h1>Connected to Drive</h1>
-                <p>Authentication was successful. Your account is now safely linked.</p>
-                <div class="sub-text">You can close this tab and return to SmartClean.</div>
-            </div>
-            <script>setTimeout(() => { window.close(); }, 3500);</script>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=html_content)
-    else:
-        return HTMLResponse(content=f"<h1>Error from Google:</h1><p>{token_data}</p>")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(token_url, data=payload)
+            token_data = response.json()
+            
+        if "access_token" in token_data:
+            SESSION_STORE["default_user"] = token_data["access_token"]
+            print("\nToken salvat in sesiune cu succes!\n")
+            
+            html_content = """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>SmartClean - Connected</title>
+                <style>
+                    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; background-image: radial-gradient(circle at 50% 0%, #2a2a35 0%, #121212 70%); height: 100vh; display: flex; align-items: center; justify-content: center; color: #ffffff; }
+                    .glass-card { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 40px 50px; text-align: center; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5); max-width: 400px; animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+                    h1 { margin: 0 0 10px 0; font-size: 24px; font-weight: 600; letter-spacing: -0.5px; }
+                    p { margin: 0; color: #a0a0a5; font-size: 15px; line-height: 1.5; }
+                    .sub-text { margin-top: 25px; font-size: 13px; color: #666; }
+                    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+                </style>
+            </head>
+            <body>
+                <div class="glass-card">
+                    <h1>Connected to Drive</h1>
+                    <p>Authentication was successful. Your account is now safely linked.</p>
+                    <div class="sub-text">You can close this tab and return to SmartClean.</div>
+                </div>
+                <script>setTimeout(() => { window.close(); }, 3500);</script>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html_content)
+        else:
+            return HTMLResponse(content=f"<h1>Error from Google:</h1><p>{token_data}</p>")
+    except Exception as e:
+        return HTMLResponse(content=f"<h1>Python Backend Error:</h1><p>{str(e)}</p>")
 
 @app.get("/api/files")
 async def get_files():
