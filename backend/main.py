@@ -9,12 +9,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
-from dotenv import load_dotenv
 import sys
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google import genai
 from google.genai import types
+from core_secrets import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, GEMINI_API_KEY
 
 app = FastAPI(title="SmartClean API")
 
@@ -32,24 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if getattr(sys, 'frozen', False):
-    bundle_dir = sys._MEIPASS
-else:
-    bundle_dir = os.path.dirname(os.path.abspath(__file__))
-
-env_path = os.path.join(bundle_dir, '.env')
-if os.path.exists(env_path):
-    load_dotenv(env_path)
-else:
-    load_dotenv()
-
-CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:14201/auth/callback")
 SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.modify'
-
-# Configurare Gemini AI
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SESSION_STORE = {}
 
@@ -93,7 +76,7 @@ async def callback(code: str):
             "grant_type": "authorization_code"
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             response = await client.post(token_url, data=payload)
             token_data = response.json()
             
@@ -205,7 +188,7 @@ async def process_chat(request: ChatRequest):
             "Images for visual analysis (if applicable):\n"
         ]
         
-        async with httpx.AsyncClient() as http_client:
+        async with httpx.AsyncClient(verify=False) as http_client:
             fetch_tasks = []
             file_metadata_for_tasks = []
 
@@ -273,7 +256,7 @@ async def process_chat(request: ChatRequest):
                     messages = results.get('messages', [])
                     
                     if messages:
-                        async with httpx.AsyncClient() as http_client:
+                        async with httpx.AsyncClient(verify=False) as http_client:
                             sem = asyncio.Semaphore(50)
                             async def fetch_with_sem(msg):
                                 async with sem:
@@ -362,7 +345,7 @@ async def delete_files(request: DeleteRequest):
         }
         deleted_count = 0
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             # Spargem lista in bucati de cate 50 pentru a evita Rate Limit-ul Google
             chunk_size = 50
             print(f"🗑️ Mutam {len(request.file_ids)} fisiere in trash (Batch processing async)...")
@@ -447,7 +430,7 @@ async def restore_files(request: RestoreRequest):
         }
         restored_count = 0
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             chunk_size = 50
             print(f"♻️ Restauram {len(request.file_ids)} fisiere (Batch processing async)...")
             
@@ -495,7 +478,7 @@ async def get_gmail_emails():
         if not messages:
             return {"files": []}
             
-        async with httpx.AsyncClient() as http_client:
+        async with httpx.AsyncClient(verify=False) as http_client:
             sem = asyncio.Semaphore(50)
             async def fetch_with_sem(msg):
                 async with sem:
@@ -549,7 +532,7 @@ async def delete_gmail_emails(request: GmailDeleteRequest):
         }
         deleted_count = 0
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=False) as client:
             chunk_size = 50
             print(f"🗑️ Mutam {len(request.email_ids)} emailuri in trash (Batch processing async)...")
             
