@@ -5,7 +5,7 @@ import json
 import re
 import base64 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google import genai
 from google.genai import types
-from core_secrets import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, GEMINI_API_KEY
+from core_secrets import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI
 
 app = FastAPI(title="SmartClean API")
 
@@ -150,7 +150,10 @@ class ChatRequest(BaseModel):
     files: list
 
 @app.post("/api/chat")
-async def process_chat(request: ChatRequest):
+async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
+    if not x_gemini_key or not x_gemini_key.strip():
+        raise HTTPException(status_code=401, detail="Gemini API Key is missing. Please add it in Settings.")
+
     token = SESSION_STORE.get("default_user")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -180,7 +183,7 @@ async def process_chat(request: ChatRequest):
         (Note: target_platform can ONLY be 'drive' or 'gmail')
         """
         
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        gemini_client = genai.Client(api_key=x_gemini_key.strip())
         
         prompt_content = [
             f"User Request: {request.prompt}\n\n",

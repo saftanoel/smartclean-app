@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock, Mail } from "lucide-react";
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock, Mail, Key, Eye, EyeOff } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -70,6 +70,13 @@ function App() {
   );
   const [trashFiles, setTrashFiles] = useState<DriveFile[]>([]);
   const [isLoadingTrash, setIsLoadingTrash] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState<string>(
+    () => localStorage.getItem('geminiApiKey') || ""
+  );
+  const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
+  const [tempApiKeyInput, setTempApiKeyInput] = useState<string>("");
+  const [showApiKey, setShowApiKey] = useState<boolean>(false);
+  const [apiKeySaveFeedback, setApiKeySaveFeedback] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([
     { sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }
   ]);
@@ -85,7 +92,8 @@ function App() {
     localStorage.setItem('searchBatchSize', searchBatchSize.toString());
     localStorage.setItem('typewriterSpeed', typewriterSpeed.toString());
     localStorage.setItem('isCompactMode', isCompactMode.toString());
-  }, [excludedExtensions, searchBatchSize, typewriterSpeed, isCompactMode]);
+    localStorage.setItem('geminiApiKey', geminiApiKey);
+  }, [excludedExtensions, searchBatchSize, typewriterSpeed, isCompactMode, geminiApiKey]);
 
   const formatBytes = (bytes?: string) => {
     if (!bytes) return "--";
@@ -200,6 +208,8 @@ function App() {
   const handleSendMessage = async () => {
     if (!chatInput.trim() || !isConnected || files.length === 0) return;
 
+    const apiKey = localStorage.getItem('geminiApiKey')?.trim() || geminiApiKey.trim();
+
     const userText = chatInput;
     setMessages(prev => [...prev, { sender: 'user', text: userText }]);
     setChatInput("");
@@ -209,7 +219,10 @@ function App() {
     try {
       const res = await fetch("http://localhost:14201/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-gemini-key": apiKey
+        },
         body: JSON.stringify({ prompt: userText, files: files })
       });
 
@@ -245,7 +258,15 @@ function App() {
         setSelectedIds(data.selected_ids || []);
         setMessages(prev => [...prev, { sender: 'ai', text: data.reply }]);
       } else {
-        setMessages(prev => [...prev, { sender: 'ai', text: "Eroare: Nu am putut procesa comanda." }]);
+        if (res.status === 401) {
+          const errData = await res.json().catch(() => ({}));
+          const detail = errData.detail || "Gemini API Key is missing. Please add it in Settings.";
+          setMessages(prev => [...prev, { sender: 'ai', text: detail }]);
+          setTempApiKeyInput(apiKey);
+          setShowApiKeyModal(true);
+        } else {
+          setMessages(prev => [...prev, { sender: 'ai', text: "Eroare: Nu am putut procesa comanda." }]);
+        }
       }
     } catch (error) {
       setMessages(prev => [...prev, { sender: 'ai', text: "Eroare de conexiune cu serverul." }]);
@@ -403,6 +424,76 @@ function App() {
         </div>
       )}
 
+      {showApiKeyModal && (
+        <div className="modal-overlay">
+          <div className="modal-content glass-panel" style={{ maxWidth: '420px', textAlign: 'left' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Key size={18} style={{ color: '#e5a50a' }} /> Gemini API Key Required
+            </h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: 'rgba(255, 255, 255, 0.7)' }}>
+              To use SmartClean's AI assistant, please enter your Google Gemini API key. Your key is stored securely in your browser's local storage.
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              <input
+                type="password"
+                className="macos-input"
+                placeholder="Paste Gemini API key (e.g. AIzaSy...)"
+                value={tempApiKeyInput}
+                onChange={(e) => setTempApiKeyInput(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && tempApiKeyInput.trim()) {
+                    const val = tempApiKeyInput.trim();
+                    localStorage.setItem('geminiApiKey', val);
+                    setGeminiApiKey(val);
+                    setShowApiKeyModal(false);
+                    setMessages(prev => [...prev, {
+                      sender: 'ai',
+                      text: "Gemini API Key saved! You can now send your request."
+                    }]);
+                  }
+                }}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div className="modal-actions" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                className="macos-button secondary"
+                onClick={() => {
+                  setShowApiKeyModal(false);
+                  setCurrentView('settings');
+                }}
+              >
+                Open Settings
+              </button>
+              <button
+                className="macos-button secondary"
+                onClick={() => setShowApiKeyModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="macos-button"
+                onClick={() => {
+                  if (tempApiKeyInput.trim()) {
+                    const val = tempApiKeyInput.trim();
+                    localStorage.setItem('geminiApiKey', val);
+                    setGeminiApiKey(val);
+                    setShowApiKeyModal(false);
+                    setMessages(prev => [...prev, {
+                      sender: 'ai',
+                      text: "Gemini API Key saved! You can now send your request."
+                    }]);
+                  }
+                }}
+              >
+                Save Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       <div data-tauri-drag-region className="mac-drag-region"></div>
       <div className="app-layout">
@@ -472,6 +563,78 @@ function App() {
 
           {currentView === 'settings' ? (
             <div className="settings-panel">
+              <div className="settings-card glass-panel">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Key size={18} /> Gemini API Key (BYOK)</h3>
+                <p style={{ margin: '0', fontSize: '13px', color: 'rgba(255, 255, 255, 0.6)' }}>
+                  SmartClean uses your personal Google Gemini API key. It is saved in your local storage and sent dynamically with requests.
+                </p>
+                <div className="setting-row">
+                  <label htmlFor="geminiApiKey">Gemini API Key</label>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <input
+                        id="geminiApiKey"
+                        type={showApiKey ? "text" : "password"}
+                        className="macos-input"
+                        placeholder="Paste your Gemini API key (e.g. AIzaSy...)"
+                        value={geminiApiKey}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setGeminiApiKey(val);
+                          localStorage.setItem('geminiApiKey', val);
+                        }}
+                        style={{ width: '100%', paddingRight: '40px' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        style={{
+                          position: 'absolute',
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'rgba(255,255,255,0.6)',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                        title={showApiKey ? "Hide Key" : "Show Key"}
+                      >
+                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    <button
+                      className="macos-button"
+                      onClick={() => {
+                        localStorage.setItem('geminiApiKey', geminiApiKey.trim());
+                        setApiKeySaveFeedback("Saved!");
+                        setTimeout(() => setApiKeySaveFeedback(""), 2000);
+                      }}
+                    >
+                      {apiKeySaveFeedback || "Save"}
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', color: geminiApiKey.trim() ? '#32d74b' : '#ff453a' }}>
+                      {geminiApiKey.trim() ? '● API Key configured' : '○ No API Key set'}
+                    </span>
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openUrl("https://aistudio.google.com/app/apikey");
+                      }}
+                      style={{ fontSize: '12px', color: '#0a84ff', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      Get a free key from Google AI Studio <ArrowUpRight size={12} />
+                    </a>
+                  </div>
+                </div>
+              </div>
+
               <div className="settings-card glass-panel">
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} /> Drive & Safety Settings</h3>
                 <div className="setting-row">
@@ -684,6 +847,27 @@ function App() {
                   {messages.map((msg, idx) => (
                     <div key={idx} className={`chat-bubble ${msg.sender}`}>
                       {msg.sender === 'ai' ? <TypewriterText text={msg.text} speed={typewriterSpeed} /> : msg.text}
+                      {msg.sender === 'ai' && msg.text.includes("Gemini API Key is missing") && (
+                        <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
+                          <button
+                            className="macos-button secondary"
+                            style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => {
+                              setTempApiKeyInput(localStorage.getItem('geminiApiKey') || "");
+                              setShowApiKeyModal(true);
+                            }}
+                          >
+                            <Key size={12} /> Enter Key
+                          </button>
+                          <button
+                            className="macos-button secondary"
+                            style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => setCurrentView('settings')}
+                          >
+                            <Settings size={12} /> Open Settings
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                   {isThinking && (
