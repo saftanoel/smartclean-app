@@ -70,9 +70,8 @@ function App() {
   );
   const [trashFiles, setTrashFiles] = useState<DriveFile[]>([]);
   const [isLoadingTrash, setIsLoadingTrash] = useState(false);
-  const [geminiApiKey, setGeminiApiKey] = useState<string>(
-    () => localStorage.getItem('geminiApiKey') || ""
-  );
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [geminiApiKey, setGeminiApiKey] = useState<string>("");
   const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
   const [tempApiKeyInput, setTempApiKeyInput] = useState<string>("");
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
@@ -80,6 +79,21 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }
   ]);
+
+  const getApiKeyForAccount = (email: string): string => {
+    if (!email || !email.trim()) return "";
+    return localStorage.getItem(`geminiApiKey_${email.trim().toLowerCase()}`) || "";
+  };
+
+  const saveApiKeyForAccount = (email: string, key: string) => {
+    if (!email || !email.trim()) return;
+    const normalized = email.trim().toLowerCase();
+    if (key.trim()) {
+      localStorage.setItem(`geminiApiKey_${normalized}`, key.trim());
+    } else {
+      localStorage.removeItem(`geminiApiKey_${normalized}`);
+    }
+  };
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -92,8 +106,7 @@ function App() {
     localStorage.setItem('searchBatchSize', searchBatchSize.toString());
     localStorage.setItem('typewriterSpeed', typewriterSpeed.toString());
     localStorage.setItem('isCompactMode', isCompactMode.toString());
-    localStorage.setItem('geminiApiKey', geminiApiKey);
-  }, [excludedExtensions, searchBatchSize, typewriterSpeed, isCompactMode, geminiApiKey]);
+  }, [excludedExtensions, searchBatchSize, typewriterSpeed, isCompactMode]);
 
   const formatBytes = (bytes?: string) => {
     if (!bytes) return "--";
@@ -136,6 +149,9 @@ function App() {
   };
 
   useEffect(() => {
+    // Clear legacy global un-scoped key to avoid leaking across accounts
+    localStorage.removeItem('geminiApiKey');
+
     let intervalId: ReturnType<typeof setInterval>;
 
     const checkStatus = async () => {
@@ -146,15 +162,36 @@ function App() {
           const statusRes = await fetch("http://localhost:14201/api/status");
           const statusData = await statusRes.json();
 
-          const newlyConnected = statusData.is_connected;
+          const isNowConnected = Boolean(statusData.is_connected);
+          const currentEmail = (statusData.user_email || "").trim();
 
-          if (newlyConnected && !isConnected) {
-            setIsConnected(true);
-            setMessages([{ sender: 'ai', text: "Drive connected successfully! I'm ready to analyze your files. What should we clean up?" }]);
-            fetchFiles();
-            fetchGmail();
-          } else if (!newlyConnected) {
+          if (isNowConnected) {
+            const isFirstConnect = !isConnected;
+            const accountChanged = currentEmail && currentEmail !== userEmail;
+
+            if (isFirstConnect || accountChanged) {
+              setIsConnected(true);
+              setUserEmail(currentEmail);
+
+              const accountKey = getApiKeyForAccount(currentEmail);
+              setGeminiApiKey(accountKey);
+
+              if (accountKey) {
+                setMessages([{ sender: 'ai', text: "Drive connected successfully! I'm ready to analyze your files. What should we clean up?" }]);
+              } else {
+                setMessages([{ sender: 'ai', text: "Drive connected successfully! Please configure your Gemini API Key in Settings to start analyzing your files." }]);
+              }
+
+              fetchFiles();
+              fetchGmail();
+            }
+          } else if (!isNowConnected && isConnected) {
             setIsConnected(false);
+            setUserEmail("");
+            setGeminiApiKey("");
+            setFiles([]);
+            setGmailEmails([]);
+            setTrashFiles([]);
           }
         } else {
           setApiStatus("disconnected");
@@ -164,13 +201,11 @@ function App() {
       }
     };
 
-
-
     checkStatus();
     intervalId = setInterval(checkStatus, 3000);
 
     return () => clearInterval(intervalId);
-  }, [isConnected]);
+  }, [isConnected, userEmail]);
 
   const fetchFiles = async () => {
     setIsLoadingFiles(true);
@@ -208,7 +243,7 @@ function App() {
   const handleSendMessage = async () => {
     if (!chatInput.trim() || !isConnected || files.length === 0) return;
 
-    const apiKey = localStorage.getItem('geminiApiKey')?.trim() || geminiApiKey.trim();
+    const apiKey = userEmail ? getApiKeyForAccount(userEmail) : '';
 
     const userText = chatInput;
     setMessages(prev => [...prev, { sender: 'user', text: userText }]);
@@ -431,7 +466,7 @@ function App() {
               <Key size={18} style={{ color: '#e5a50a' }} /> Gemini API Key Required
             </h3>
             <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: 'rgba(255, 255, 255, 0.7)' }}>
-              To use SmartClean's AI assistant, please enter your Google Gemini API key. Your key is stored securely in your browser's local storage.
+              To use SmartClean's AI assistant with {userEmail || "your account"}, please enter your Google Gemini API key.
             </p>
             <div style={{ marginBottom: '16px' }}>
               <input
@@ -444,12 +479,14 @@ function App() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && tempApiKeyInput.trim()) {
                     const val = tempApiKeyInput.trim();
-                    localStorage.setItem('geminiApiKey', val);
-                    setGeminiApiKey(val);
+                    if (userEmail) {
+                      saveApiKeyForAccount(userEmail, val);
+                      setGeminiApiKey(val);
+                    }
                     setShowApiKeyModal(false);
                     setMessages(prev => [...prev, {
                       sender: 'ai',
-                      text: "Gemini API Key saved! You can now send your request."
+                      text: "Gemini API Key saved! I'm ready to analyze your files. What should we clean up?"
                     }]);
                   }
                 }}
@@ -477,12 +514,14 @@ function App() {
                 onClick={() => {
                   if (tempApiKeyInput.trim()) {
                     const val = tempApiKeyInput.trim();
-                    localStorage.setItem('geminiApiKey', val);
-                    setGeminiApiKey(val);
+                    if (userEmail) {
+                      saveApiKeyForAccount(userEmail, val);
+                      setGeminiApiKey(val);
+                    }
                     setShowApiKeyModal(false);
                     setMessages(prev => [...prev, {
                       sender: 'ai',
-                      text: "Gemini API Key saved! You can now send your request."
+                      text: "Gemini API Key saved! I'm ready to analyze your files. What should we clean up?"
                     }]);
                   }
                 }}
@@ -565,74 +604,89 @@ function App() {
             <div className="settings-panel">
               <div className="settings-card glass-panel">
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Key size={18} /> Gemini API Key (BYOK)</h3>
-                <p style={{ margin: '0', fontSize: '13px', color: 'rgba(255, 255, 255, 0.6)' }}>
-                  SmartClean uses your personal Google Gemini API key. It is saved in your local storage and sent dynamically with requests.
-                </p>
-                <div className="setting-row">
-                  <label htmlFor="geminiApiKey">Gemini API Key</label>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <input
-                        id="geminiApiKey"
-                        type={showApiKey ? "text" : "password"}
-                        className="macos-input"
-                        placeholder="Paste your Gemini API key (e.g. AIzaSy...)"
-                        value={geminiApiKey}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setGeminiApiKey(val);
-                          localStorage.setItem('geminiApiKey', val);
-                        }}
-                        style={{ width: '100%', paddingRight: '40px' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        style={{
-                          position: 'absolute',
-                          right: '8px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'rgba(255,255,255,0.6)',
-                          cursor: 'pointer',
-                          padding: '4px',
-                          display: 'flex',
-                          alignItems: 'center'
-                        }}
-                        title={showApiKey ? "Hide Key" : "Show Key"}
-                      >
-                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
+                {isConnected && userEmail ? (
+                  <>
+                    <p style={{ margin: '0', fontSize: '13px', color: 'rgba(255, 255, 255, 0.6)' }}>
+                      API keys are saved individually per Google account. Currently configuring for <strong style={{ color: '#fff' }}>{userEmail}</strong>.
+                    </p>
+                    <div className="setting-row">
+                      <label htmlFor="geminiApiKey">Gemini API Key ({userEmail})</label>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: 1 }}>
+                          <input
+                            id="geminiApiKey"
+                            type={showApiKey ? "text" : "password"}
+                            className="macos-input"
+                            placeholder="Paste your Gemini API key (e.g. AIzaSy...)"
+                            value={geminiApiKey}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setGeminiApiKey(val);
+                              saveApiKeyForAccount(userEmail, val);
+                            }}
+                            style={{ width: '100%', paddingRight: '40px' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            style={{
+                              position: 'absolute',
+                              right: '8px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'rgba(255,255,255,0.6)',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                            title={showApiKey ? "Hide Key" : "Show Key"}
+                          >
+                            {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        <button
+                          className="macos-button"
+                          onClick={() => {
+                            saveApiKeyForAccount(userEmail, geminiApiKey);
+                            setApiKeySaveFeedback("Saved!");
+                            setTimeout(() => setApiKeySaveFeedback(""), 2000);
+                            setMessages(prev => [...prev, {
+                              sender: 'ai',
+                              text: "Gemini API Key configured! I'm ready to analyze your files. What should we clean up?"
+                            }]);
+                          }}
+                        >
+                          {apiKeySaveFeedback || "Save"}
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{ fontSize: '12px', color: geminiApiKey.trim() ? '#32d74b' : '#ff453a' }}>
+                          {geminiApiKey.trim() ? `● Key configured for ${userEmail}` : `○ No API Key set for ${userEmail}`}
+                        </span>
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            openUrl("https://aistudio.google.com/app/apikey");
+                          }}
+                          style={{ fontSize: '12px', color: '#0a84ff', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          Get a free key from Google AI Studio <ArrowUpRight size={12} />
+                        </a>
+                      </div>
                     </div>
-                    <button
-                      className="macos-button"
-                      onClick={() => {
-                        localStorage.setItem('geminiApiKey', geminiApiKey.trim());
-                        setApiKeySaveFeedback("Saved!");
-                        setTimeout(() => setApiKeySaveFeedback(""), 2000);
-                      }}
-                    >
-                      {apiKeySaveFeedback || "Save"}
-                    </button>
+                  </>
+                ) : (
+                  <div style={{ padding: '14px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px dashed rgba(255,255,255,0.15)' }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255, 255, 255, 0.6)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Lock size={15} style={{ color: '#e5a50a' }} />
+                      Google Drive is disconnected. Connect an account to configure or view its Gemini API Key.
+                    </p>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap', gap: '8px' }}>
-                    <span style={{ fontSize: '12px', color: geminiApiKey.trim() ? '#32d74b' : '#ff453a' }}>
-                      {geminiApiKey.trim() ? '● API Key configured' : '○ No API Key set'}
-                    </span>
-                    <a
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openUrl("https://aistudio.google.com/app/apikey");
-                      }}
-                      style={{ fontSize: '12px', color: '#0a84ff', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      Get a free key from Google AI Studio <ArrowUpRight size={12} />
-                    </a>
-                  </div>
-                </div>
+                )}
               </div>
 
               <div className="settings-card glass-panel">
@@ -677,6 +731,8 @@ function App() {
                     console.error("Failed to call logout API", e);
                   }
                   setIsConnected(false);
+                  setUserEmail("");
+                  setGeminiApiKey("");
                   setFiles([]);
                   setGmailEmails([]);
                   setTrashFiles([]);
@@ -835,7 +891,13 @@ function App() {
                   <button
                     className="shadcn-icon-button clear-chat-btn"
                     onClick={() => {
-                      setMessages([{ sender: 'ai', text: "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space." }]);
+                      const currentKey = userEmail ? getApiKeyForAccount(userEmail) : '';
+                      const greeting = isConnected
+                        ? (currentKey
+                            ? "Drive connected! I'm ready to analyze your files. What should we clean up?"
+                            : "Drive connected! Please configure your Gemini API Key in Settings to start analyzing your files.")
+                        : "Hello! I'm your SmartClean AI. Connect your Google Drive and I'll help you find duplicates and free up space.";
+                      setMessages([{ sender: 'ai', text: greeting }]);
                       setSelectedIds([]);
                     }}
                     title="Clear Chat"
@@ -847,13 +909,13 @@ function App() {
                   {messages.map((msg, idx) => (
                     <div key={idx} className={`chat-bubble ${msg.sender}`}>
                       {msg.sender === 'ai' ? <TypewriterText text={msg.text} speed={typewriterSpeed} /> : msg.text}
-                      {msg.sender === 'ai' && msg.text.includes("Gemini API Key is missing") && (
+                      {msg.sender === 'ai' && (msg.text.includes("Gemini API Key is missing") || msg.text.includes("configure your Gemini API Key") || msg.text.includes("enter your Gemini API Key")) && (
                         <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
                           <button
                             className="macos-button secondary"
                             style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
                             onClick={() => {
-                              setTempApiKeyInput(localStorage.getItem('geminiApiKey') || "");
+                              setTempApiKeyInput(userEmail ? getApiKeyForAccount(userEmail) : "");
                               setShowApiKeyModal(true);
                             }}
                           >

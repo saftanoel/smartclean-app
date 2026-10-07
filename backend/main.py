@@ -32,9 +32,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.modify'
+SCOPES = 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/userinfo.email openid email'
 
 SESSION_STORE = {}
+
+async def fetch_user_email(token: str) -> str:
+    # 1. Drive API about
+    try:
+        creds = Credentials(token=token)
+        service = build('drive', 'v3', credentials=creds)
+        about = service.about().get(fields="user(emailAddress)").execute()
+        email = about.get('user', {}).get('emailAddress')
+        if email:
+            return email
+    except Exception as e:
+        print(f"Drive about email fetch failed: {e}")
+
+    # 2. Gmail API profile
+    try:
+        creds = Credentials(token=token)
+        service = build('gmail', 'v1', credentials=creds)
+        profile = service.users().getProfile(userId='me').execute()
+        email = profile.get('emailAddress')
+        if email:
+            return email
+    except Exception as e:
+        print(f"Gmail profile email fetch failed: {e}")
+
+    # 3. Google userinfo
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            res = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if res.status_code == 200:
+                data = res.json()
+                if "email" in data:
+                    return data["email"]
+    except Exception as e:
+        print(f"Userinfo email fetch failed: {e}")
+
+    return ""
 
 @app.get("/health")
 async def health_check():
@@ -42,13 +81,21 @@ async def health_check():
 
 @app.get("/api/status")
 async def api_status():
-    is_connected = "default_user" in SESSION_STORE
-    return {"is_connected": is_connected}
+    token = SESSION_STORE.get("default_user")
+    is_connected = bool(token)
+    user_email = SESSION_STORE.get("user_email")
+    if is_connected and not user_email:
+        user_email = await fetch_user_email(token)
+        if user_email:
+            SESSION_STORE["user_email"] = user_email
+    return {
+        "is_connected": is_connected,
+        "user_email": user_email or ""
+    }
 
 @app.post("/api/logout")
 async def logout():
-    if "default_user" in SESSION_STORE:
-        del SESSION_STORE["default_user"]
+    SESSION_STORE.clear()
     return {"message": "Logged out successfully"}
 
 @app.get("/auth/login")
@@ -83,6 +130,24 @@ async def callback(code: str):
         if "access_token" in token_data:
             SESSION_STORE["default_user"] = token_data["access_token"]
             print("\nToken salvat in sesiune cu succes!\n")
+            
+            user_email = ""
+            if "id_token" in token_data:
+                try:
+                    payload_part = token_data["id_token"].split(".")[1]
+                    padded = payload_part + "=" * ((4 - len(payload_part) % 4) % 4)
+                    jwt_data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+                    if "email" in jwt_data:
+                        user_email = jwt_data["email"]
+                except Exception as e:
+                    print(f"Error parsing id_token: {e}")
+                    
+            if not user_email:
+                user_email = await fetch_user_email(token_data["access_token"])
+                
+            if user_email:
+                SESSION_STORE["user_email"] = user_email
+                print(f"User email identificat: {user_email}")
             
             html_content = """
             <!DOCTYPE html>
