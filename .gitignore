@@ -2,4 +2,4 @@
 backend/build/
 backend/dist/
 backend/*.spec
-smartclean/src-tauri/binaries/
+frontend/src-tauri/binaries/

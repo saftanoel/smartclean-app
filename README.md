@@ -119,18 +119,18 @@ From the `backend` directory (with the virtual environment activated), compile t
 pyinstaller --onefile main.py
 
 # For Apple Silicon (M1/M2/M3/M4):
-cp dist/main ../smartclean/src-tauri/binaries/main-aarch64-apple-darwin
-chmod +x ../smartclean/src-tauri/binaries/main-aarch64-apple-darwin
+cp dist/main ../frontend/src-tauri/binaries/main-aarch64-apple-darwin
+chmod +x ../frontend/src-tauri/binaries/main-aarch64-apple-darwin
 
 # For Intel Macs (x86_64):
-# cp dist/main ../smartclean/src-tauri/binaries/main-x86_64-apple-darwin
-# chmod +x ../smartclean/src-tauri/binaries/main-x86_64-apple-darwin
+# cp dist/main ../frontend/src-tauri/binaries/main-x86_64-apple-darwin
+# chmod +x ../frontend/src-tauri/binaries/main-x86_64-apple-darwin
 ```
 
 #### 5. Install Frontend Dependencies & Start Dev Server
-Navigate to the `smartclean` directory and launch the Tauri app:
+Navigate to the `frontend` directory and launch the Tauri app:
 ```bash
-cd ../smartclean
+cd ../frontend
 npm install
 npm run tauri dev
 ```
