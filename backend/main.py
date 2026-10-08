@@ -41,7 +41,7 @@ async def fetch_user_email(token: str) -> str:
     try:
         creds = Credentials(token=token)
         service = build('drive', 'v3', credentials=creds)
-        about = service.about().get(fields="user(emailAddress)").execute()
+        about = await asyncio.to_thread(lambda: service.about().get(fields="user(emailAddress)").execute())
         email = about.get('user', {}).get('emailAddress')
         if email:
             return email
@@ -52,7 +52,7 @@ async def fetch_user_email(token: str) -> str:
     try:
         creds = Credentials(token=token)
         service = build('gmail', 'v1', credentials=creds)
-        profile = service.users().getProfile(userId='me').execute()
+        profile = await asyncio.to_thread(lambda: service.users().getProfile(userId='me').execute())
         email = profile.get('emailAddress')
         if email:
             return email
@@ -192,12 +192,14 @@ async def get_files():
         service = build('drive', 'v3', credentials=creds)
         
         # NOU: Am adaugat 'thumbnailLink' la fields!
-        results = service.files().list(
-            pageSize=500,
-            fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
-            orderBy="modifiedTime desc",
-            q="trashed = false"
-        ).execute()
+        results = await asyncio.to_thread(
+            lambda: service.files().list(
+                pageSize=500,
+                fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
+                orderBy="modifiedTime desc",
+                q="trashed = false"
+            ).execute()
+        )
         
         items = results.get('files', [])
         return {"files": items}
@@ -282,14 +284,36 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
                             types.Part.from_bytes(data=img_resp.content, mime_type="image/jpeg")
                         )
 
-        response = gemini_client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=prompt_content,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction
-            )
-        )
-        raw_text = response.text
+        max_attempts = 3
+        response = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = await gemini_client.aio.models.generate_content(
+                    model="gemini-3.5-flash",
+                    contents=prompt_content,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction
+                    )
+                )
+                break
+            except Exception as e:
+                status_code = getattr(e, "code", None)
+                err_msg = str(e)
+                print(f"⚠️ Gemini call attempt {attempt}/{max_attempts} failed: {e}")
+
+                # Fast-fail on non-retryable client errors (e.g. 400 Bad Request, 401/403 Invalid API key)
+                if status_code in (400, 401, 403) and "429" not in err_msg:
+                    raise e
+
+                if attempt == max_attempts:
+                    print(f"❌ Gemini call failed after {max_attempts} attempts.")
+                    raise e
+
+                wait_time = 2 * (2 ** (attempt - 1))  # 2s on attempt 1, 4s on attempt 2
+                print(f"⏳ Rate limit or service error encountered. Retrying in {wait_time}s...")
+                await asyncio.sleep(wait_time)
+
+        raw_text = response.text if response else ""
         
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         clean_text = match.group(0) if match else raw_text.strip()
@@ -315,11 +339,13 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
                     service = build('gmail', 'v1', credentials=creds)
                     final_q = f"({data['drive_query']}) -in:trash"
                     
-                    results = service.users().messages().list(
-                        userId='me',
-                        q=final_q,
-                        maxResults=500
-                    ).execute()
+                    results = await asyncio.to_thread(
+                        lambda: service.users().messages().list(
+                            userId='me',
+                            q=final_q,
+                            maxResults=500
+                        ).execute()
+                    )
                     
                     messages = results.get('messages', [])
                     
@@ -367,12 +393,14 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
                     
                     final_q = f"({data['drive_query']}) and trashed = false"
                     
-                    results = service.files().list(
-                        pageSize=500,
-                        fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
-                        orderBy="modifiedTime desc",
-                        q=final_q
-                    ).execute()
+                    results = await asyncio.to_thread(
+                        lambda: service.files().list(
+                            pageSize=500,
+                            fields="files(id, name, mimeType, size, modifiedTime, webViewLink, thumbnailLink)",
+                            orderBy="modifiedTime desc",
+                            q=final_q
+                        ).execute()
+                    )
                     
                     new_files = results.get('files', [])
                     data["new_files"] = new_files
@@ -454,12 +482,14 @@ async def get_trash_files():
         service = build('drive', 'v3', credentials=creds)
         
         # Cerem fisierele care au parametrul trashed = true
-        results = service.files().list(
-            pageSize=500,
-            fields="files(id, name, mimeType, size, modifiedTime, webViewLink)",
-            orderBy="modifiedTime desc",
-            q="trashed = true"
-        ).execute()
+        results = await asyncio.to_thread(
+            lambda: service.files().list(
+                pageSize=500,
+                fields="files(id, name, mimeType, size, modifiedTime, webViewLink)",
+                orderBy="modifiedTime desc",
+                q="trashed = true"
+            ).execute()
+        )
         
         items = results.get('files', [])
         return {"files": items}
@@ -476,7 +506,7 @@ async def empty_trash():
     try:
         creds = Credentials(token=token)
         service = build('drive', 'v3', credentials=creds)
-        service.files().emptyTrash().execute()
+        await asyncio.to_thread(lambda: service.files().emptyTrash().execute())
         return {"message": "Trash emptied successfully."}
     except Exception as e:
         print(f"Error emptying trash: {e}")
@@ -536,11 +566,13 @@ async def get_gmail_emails():
         creds = Credentials(token=token)
         service = build('gmail', 'v1', credentials=creds)
         
-        results = service.users().messages().list(
-            userId='me',
-            q="-in:trash",
-            maxResults=500
-        ).execute()
+        results = await asyncio.to_thread(
+            lambda: service.users().messages().list(
+                userId='me',
+                q="-in:trash",
+                maxResults=500
+            ).execute()
+        )
         
         messages = results.get('messages', [])
         if not messages:
