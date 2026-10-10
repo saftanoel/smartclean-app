@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock, Mail, Key, Eye, EyeOff } from "lucide-react";
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock, Mail, Key, Eye, EyeOff, RefreshCw, Send } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -213,10 +213,12 @@ function App() {
       const res = await fetch("http://localhost:14201/api/files");
       if (res.ok) {
         const data = await res.json();
-        setFiles(data.files);
+        setFiles(data.files || []);
       } else if (res.status === 401) {
         setIsConnected(false);
         setFiles([]);
+      } else {
+        console.error("Failed to fetch files:", res.status);
       }
     } catch (error) {
       console.error("Eroare la aducerea fișierelor:", error);
@@ -231,7 +233,12 @@ function App() {
       const res = await fetch("http://localhost:14201/api/gmail/emails");
       if (res.ok) {
         const data = await res.json();
-        setGmailEmails(data.files);
+        setGmailEmails(data.files || []);
+      } else if (res.status === 401) {
+        setIsConnected(false);
+        setGmailEmails([]);
+      } else {
+        console.error("Failed to fetch Gmail:", res.status);
       }
     } catch (error) {
       console.error("Error fetching Gmail:", error);
@@ -241,9 +248,10 @@ function App() {
   };
 
   const handleSendMessage = async () => {
-    if (!chatInput.trim() || !isConnected || files.length === 0) return;
+    if (!chatInput.trim() || !isConnected) return;
 
     const apiKey = userEmail ? getApiKeyForAccount(userEmail) : '';
+    const currentList = platform === 'gmail' ? gmailEmails : files;
 
     const userText = chatInput;
     setMessages(prev => [...prev, { sender: 'user', text: userText }]);
@@ -258,7 +266,7 @@ function App() {
           "Content-Type": "application/json",
           "x-gemini-key": apiKey
         },
-        body: JSON.stringify({ prompt: userText, files: files })
+        body: JSON.stringify({ prompt: userText, files: currentList })
       });
 
       if (res.ok) {
@@ -300,11 +308,32 @@ function App() {
           setTempApiKeyInput(apiKey);
           setShowApiKeyModal(true);
         } else {
-          setMessages(prev => [...prev, { sender: 'ai', text: "Eroare: Nu am putut procesa comanda." }]);
+          try {
+            const errorData = await res.json();
+            let detail = errorData?.detail;
+            if (Array.isArray(detail)) {
+              detail = detail.map((d: any) => d.msg || JSON.stringify(d)).join(", ");
+            } else if (typeof detail === "object" && detail !== null) {
+              detail = JSON.stringify(detail);
+            }
+
+            if (detail) {
+              setMessages(prev => [...prev, { sender: 'ai', text: `Eroare: ${detail}` }]);
+            } else {
+              setMessages(prev => [...prev, { sender: 'ai', text: "Eroare: Nu am putut procesa comanda." }]);
+            }
+          } catch (parseErr) {
+            console.error("Failed to parse error response JSON:", parseErr, res);
+            setMessages(prev => [...prev, { sender: 'ai', text: "Eroare: Nu am putut procesa comanda." }]);
+          }
         }
       }
     } catch (error) {
-      setMessages(prev => [...prev, { sender: 'ai', text: "Eroare de conexiune cu serverul." }]);
+      console.error("Chat connection error:", error);
+      const errMsg = error instanceof Error && error.message 
+        ? `Eroare de conexiune cu serverul: ${error.message}` 
+        : "Eroare de conexiune cu serverul.";
+      setMessages(prev => [...prev, { sender: 'ai', text: errMsg }]);
     } finally {
       setIsThinking(false);
     }
@@ -769,6 +798,14 @@ function App() {
                     </div>
 
                     <div className="header-actions">
+                      <button
+                        className="shadcn-icon-button"
+                        onClick={() => platform === 'gmail' ? fetchGmail() : fetchFiles()}
+                        disabled={isLoadingFiles || isLoadingEmails}
+                        title={`Refresh ${platform === 'gmail' ? 'Gmail' : 'Drive'}`}
+                      >
+                        <RefreshCw size={14} className={isLoadingFiles || isLoadingEmails ? "spin-animation" : ""} />
+                      </button>
                       <span className="panel-badge">{currentView === 'dashboard' ? (platform === 'drive' ? files.length : gmailEmails.length) : trashFiles.length} items</span>
                       {currentView === 'dashboard' && selectedIds.length > 0 && (
                         <div style={{ display: 'flex', gap: '8px' }}>
@@ -816,7 +853,24 @@ function App() {
                         />
                       </div>
                       <ul className="file-list">
-                        {displayedFiles.map((file) => {
+                        {displayedFiles.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '40px 20px', color: 'rgba(255,255,255,0.5)' }}>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '13px' }}>
+                              {searchTerm ? `No matching items found for "${searchTerm}"` : `No ${platform === 'gmail' ? 'emails' : 'files'} found.`}
+                            </p>
+                            {!searchTerm && (
+                              <button 
+                                className="macos-button" 
+                                style={{ margin: '0 auto', fontSize: '12px' }}
+                                onClick={() => platform === 'gmail' ? fetchGmail() : fetchFiles()}
+                                disabled={isLoadingFiles || isLoadingEmails}
+                              >
+                                <RefreshCw size={13} className={isLoadingFiles || isLoadingEmails ? "spin-animation" : ""} /> Sync Now
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          displayedFiles.map((file) => {
 
                           const isSelected = selectedIds.includes(file.id);
                           const isEmail = file.mimeType === "application/vnd.google-apps.mail";
@@ -855,7 +909,7 @@ function App() {
                               </div>
                             </li>
                           );
-                        })}
+                        }))}
                       </ul>
                     </>
                   ) : (
@@ -951,6 +1005,15 @@ function App() {
                       if (e.key === 'Enter') handleSendMessage();
                     }}
                   />
+                  <button
+                    className="shadcn-icon-button"
+                    onClick={handleSendMessage}
+                    disabled={!isConnected || isThinking || !chatInput.trim()}
+                    style={{ opacity: !isConnected || isThinking || !chatInput.trim() ? 0.3 : 1 }}
+                    title="Send message"
+                  >
+                    <Send size={16} />
+                  </button>
                 </div>
               </div>
             </div>
