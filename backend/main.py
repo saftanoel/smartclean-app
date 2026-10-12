@@ -14,7 +14,12 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google import genai
 from google.genai import types
-from core_secrets import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI
+try:
+    from core_secrets import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI
+except ImportError:
+    CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+    CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:14201/auth/callback")
 
 app = FastAPI(title="SmartClean API")
 
