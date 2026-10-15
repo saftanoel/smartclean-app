@@ -39,11 +39,10 @@ const TypewriterText = ({ text, speed = 10 }: { text: string; speed?: number }) 
 
 const VALID_GEMINI_MODELS = [
   "auto",
-  "gemini-3.6-flash",
-  "gemini-3.8-flash",
-  "gemini-3.1-pro-preview",
   "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite"
+  "gemini-3.8-flash",
+  "gemini-2.5-flash",
+  "gemini-3.1-pro-preview"
 ] as const;
 
 function App() {
@@ -769,14 +768,13 @@ function App() {
                     onChange={e => setPreferredModel(e.target.value)}
                   >
                     <option value="auto">Auto (Smart Routing - Recommended)</option>
-                    <option value="gemini-3.6-flash">gemini-3.6-flash (Balanced & Fast - Stable)</option>
-                    <option value="gemini-3.8-flash">gemini-3.8-flash (Complex Agentic Tasks - Stable)</option>
-                    <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Deep Reasoning Pro)</option>
                     <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra-Fast & Low Cost)</option>
-                    <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Lightweight Fallback)</option>
+                    <option value="gemini-3.8-flash">gemini-3.8-flash (Complex Agentic Tasks - Stable)</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash (Fast & Proven Fallback)</option>
+                    <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Deep Reasoning Pro)</option>
                   </select>
                   <span style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.5)' }}>
-                    Auto dynamically routes complex analysis to Gemini 3.1 Pro and standard queries to Gemini 3.6, with automatic fallback across the Gemini 3 series.
+                    Auto dynamically routes complex analysis to Gemini 3.8 and standard queries to Gemini 3.5 Flash-Lite, with cooldown caching for instant speed.
                   </span>
                 </div>
                 <div className="setting-row">

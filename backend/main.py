@@ -5,15 +5,25 @@ import json
 import re
 import base64 
 import uvicorn
+import time
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
+from typing import Optional, List
 import sys
+
+# Cooldown cache for failed/unavailable models to avoid cascade delays
+MODEL_COOLDOWN_UNTIL: dict[str, float] = {}
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google import genai
 from google.genai import types
+from google.genai import errors as genai_errors
+try:
+    from google.api_core import exceptions as google_exceptions
+except ImportError:
+    google_exceptions = None
 try:
     from core_secrets import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI
 except ImportError:
@@ -217,23 +227,293 @@ async def get_files():
         raise HTTPException(status_code=401, detail="Token expirat sau invalid")
 
 
+def is_complex_task(prompt: str) -> bool:
+    if not prompt:
+        return False
+    if len(prompt) > 120:
+        return True
+    keywords = [
+        "analyze", "organize", "compare", "duplicate", "summarize",
+        "group", "cleanup plan", "unsubscribe", "archive", "filter by multiple",
+        "analizeaza", "organizeaza", "compar", "older than", "newer than", "before", "after", "mai vechi"
+    ]
+    prompt_lower = prompt.lower()
+    return any(kw in prompt_lower for kw in keywords)
+
+def is_romanian(text: str) -> bool:
+    if not text:
+        return False
+    ro_words = {
+        "poti", "sa", "le", "acum", "toate", "fisierele", "te", "rog", "salut",
+        "multumesc", "da", "nu", "si", "in", "pe", "pentru", "debifeaza", "deselecteaza",
+        "deselectezi", "curata", "sterge", "aratami", "arata", "bifeaza", "selectate", "tot"
+    }
+    tokens = set(re.findall(r'\b[a-zA-ZăâîșțĂÂÎȘȚ]+\b', text.lower()))
+    return bool(tokens & ro_words)
+
+def is_deselect_request(prompt: str) -> bool:
+    if not prompt:
+        return False
+    p = prompt.strip().lower()
+    keywords = [
+        "deselect", "deselecteaza", "deselectezi", "deselectati", "deselectioneaza",
+        "unselect", "uncheck", "debifeaza", "debifare", "clear selection",
+        "anuleaza selectia", "sterge selectia", "reset selection", "goleste selectia"
+    ]
+    return any(kw in p for kw in keywords)
+
+def match_local_file_type_filter(prompt: str, files: list) -> Optional[dict]:
+    """Instant local fast-path (<10ms) for simple file-type selection queries without date/size/complex filters."""
+    if not prompt or not files:
+        return None
+    p = prompt.strip().lower()
+
+    # If date, size, or complex conditions exist, return None so Gemini handles it accurately
+    condition_patterns = [
+        r'\b(older|newer|before|after|since|until|between|during|from)\b',
+        r'\b(mai vechi|mai nou|inainte|dupa|din)\b',
+        r'\b(larger|smaller|bigger|more than|less than|over|under|peste|sub|mai mare|mai mic)\b',
+        r'\b(\d+\s*(mb|gb|kb|megabytes|gigabytes))\b',
+        r'\b(20[0-2][0-9])\b',
+        r'\b(duplicate|duplicat|blurry|neclar|similar|burst|containing|numit|named)\b',
+    ]
+    for pattern in condition_patterns:
+        if re.search(pattern, p):
+            return None
+
+    # Check for selection/find intent
+    select_intent = any(w in p for w in [
+        "select", "selecteaza", "alege", "bifeaza", "toate", "all", "fisiere", "files", "show", "get", "gaseste"
+    ])
+    if not select_intent:
+        return None
+
+    is_ro = is_romanian(p)
+
+    # 1. PDFs
+    pdf_keywords = ["pdf", "pdfs", "pdf-uri", "pdf-urile", "documente pdf"]
+    if any(re.search(r'\b' + re.escape(kw) + r'\b', p) for kw in pdf_keywords):
+        matching = [
+            f for f in files
+            if f.get("mimeType") == "application/pdf" or f.get("name", "").lower().endswith(".pdf")
+        ]
+        label_ro = "fișiere PDF"
+        label_en = "PDF files"
+        matching_ids = [f["id"] for f in matching if f.get("id")]
+        reply = (
+            f"Am selectat toate cele {len(matching_ids)} {label_ro} din listă."
+            if is_ro
+            else f"Selected all {len(matching_ids)} {label_en} found in the list."
+        ) if matching_ids else (
+            f"Nu am găsit niciun {label_ro} în lista curentă."
+            if is_ro
+            else f"No {label_en} found in the current list."
+        )
+        return {
+            "reply": reply,
+            "selected_ids": matching_ids,
+            "drive_query": None,
+            "target_platform": "drive",
+            "new_files": [],
+            "model_used": "instant-local"
+        }
+
+    # 2. Audio / Music
+    audio_keywords = ["music", "muzica", "audio", "melodii", "melodiile", "song", "songs", "mp3"]
+    if any(re.search(r'\b' + re.escape(kw) + r'\b', p) for kw in audio_keywords):
+        audio_exts = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.wma')
+        matching = [
+            f for f in files
+            if f.get("mimeType", "").startswith("audio/") or f.get("name", "").lower().endswith(audio_exts)
+        ]
+        label_ro = "fișiere audio / melodii"
+        label_en = "audio files / music"
+        matching_ids = [f["id"] for f in matching if f.get("id")]
+        reply = (
+            f"Am selectat toate cele {len(matching_ids)} {label_ro} din listă."
+            if is_ro
+            else f"Selected all {len(matching_ids)} {label_en} found in the list."
+        ) if matching_ids else (
+            f"Nu am găsit {label_ro} în lista curentă."
+            if is_ro
+            else f"No {label_en} found in the current list."
+        )
+        return {
+            "reply": reply,
+            "selected_ids": matching_ids,
+            "drive_query": None,
+            "target_platform": "drive",
+            "new_files": [],
+            "model_used": "instant-local"
+        }
+
+    # 3. Images / Photos
+    image_keywords = ["image", "images", "photo", "photos", "picture", "pictures", "poze", "pozele", "imagini", "imaginile", "fotografii", "fotografiile"]
+    if any(re.search(r'\b' + re.escape(kw) + r'\b', p) for kw in image_keywords):
+        img_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.tiff', '.raw', '.svg')
+        matching = [
+            f for f in files
+            if f.get("mimeType", "").startswith("image/") or f.get("name", "").lower().endswith(img_exts)
+        ]
+        label_ro = "imagini / fotografii"
+        label_en = "images / photos"
+        matching_ids = [f["id"] for f in matching if f.get("id")]
+        reply = (
+            f"Am selectat toate cele {len(matching_ids)} {label_ro} din listă."
+            if is_ro
+            else f"Selected all {len(matching_ids)} {label_en} found in the list."
+        ) if matching_ids else (
+            f"Nu am găsit {label_ro} în lista curentă."
+            if is_ro
+            else f"No {label_en} found in the current list."
+        )
+        return {
+            "reply": reply,
+            "selected_ids": matching_ids,
+            "drive_query": None,
+            "target_platform": "drive",
+            "new_files": [],
+            "model_used": "instant-local"
+        }
+
+    # 4. Videos
+    video_keywords = ["video", "videos", "movie", "movies", "videoclipuri", "videoclipurile", "filme", "filmele", "mp4"]
+    if any(re.search(r'\b' + re.escape(kw) + r'\b', p) for kw in video_keywords):
+        vid_exts = ('.mp4', '.mkv', '.mov', '.avi', '.wmv', '.webm', '.m4v')
+        matching = [
+            f for f in files
+            if f.get("mimeType", "").startswith("video/") or f.get("name", "").lower().endswith(vid_exts)
+        ]
+        label_ro = "videoclipuri"
+        label_en = "videos"
+        matching_ids = [f["id"] for f in matching if f.get("id")]
+        reply = (
+            f"Am selectat toate cele {len(matching_ids)} {label_ro} din listă."
+            if is_ro
+            else f"Selected all {len(matching_ids)} {label_en} found in the list."
+        ) if matching_ids else (
+            f"Nu am găsit {label_ro} în lista curentă."
+            if is_ro
+            else f"No {label_en} found in the current list."
+        )
+        return {
+            "reply": reply,
+            "selected_ids": matching_ids,
+            "drive_query": None,
+            "target_platform": "drive",
+            "new_files": [],
+            "model_used": "instant-local"
+        }
+
+    # 5. Archives
+    archive_keywords = ["archive", "archives", "arhive", "arhivele", "zip", "rar", "7z"]
+    if any(re.search(r'\b' + re.escape(kw) + r'\b', p) for kw in archive_keywords):
+        arch_exts = ('.zip', '.rar', '.7z', '.tar', '.gz', '.bz2')
+        matching = [
+            f for f in files
+            if f.get("name", "").lower().endswith(arch_exts)
+            or f.get("mimeType") in ('application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/x-tar', 'application/x-7z-compressed')
+        ]
+        label_ro = "arhive"
+        label_en = "archives"
+        matching_ids = [f["id"] for f in matching if f.get("id")]
+        reply = (
+            f"Am selectat toate cele {len(matching_ids)} {label_ro} din listă."
+            if is_ro
+            else f"Selected all {len(matching_ids)} {label_en} found in the list."
+        ) if matching_ids else (
+            f"Nu am găsit {label_ro} în lista curentă."
+            if is_ro
+            else f"No {label_en} found in the current list."
+        )
+        return {
+            "reply": reply,
+            "selected_ids": matching_ids,
+            "drive_query": None,
+            "target_platform": "drive",
+            "new_files": [],
+            "model_used": "instant-local"
+        }
+
+    return None
+
+def find_exact_duplicate_groups(files: list) -> list:
+    """Pre-compute exact duplicate clusters sharing identical file size and normalized base name."""
+    def normalize_filename(name: str) -> tuple:
+        base, ext = os.path.splitext(name)
+        # Strip (1), (2), copy, copia lui, etc.
+        base = re.sub(r'\s*\(\d+\)$', '', base.strip(), flags=re.IGNORECASE)
+        base = re.sub(r'^(Copy of |Copia lui )\s*', '', base.strip(), flags=re.IGNORECASE)
+        base = re.sub(r'[\s_-]+copy$', '', base.strip(), flags=re.IGNORECASE)
+        return (base.strip().lower(), ext.lower())
+
+    size_map = {}
+    for f in files:
+        size = f.get('size')
+        name = f.get('name', '')
+        if size and int(size) > 0 and name:
+            key = (size, normalize_filename(name))
+            if key not in size_map:
+                size_map[key] = []
+            size_map[key].append(f)
+
+    duplicate_groups = []
+    for (size, norm_name), group in size_map.items():
+        if len(group) > 1:
+            duplicate_groups.append({
+                "original_to_keep": group[0],
+                "redundant_copies": group[1:]
+            })
+    return duplicate_groups
+
 class ChatRequest(BaseModel):
     prompt: str
     files: list
+    preferred_model: Optional[str] = "auto"
 
 @app.post("/api/chat")
 async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
-    if not x_gemini_key or not x_gemini_key.strip():
-        raise HTTPException(status_code=401, detail="Gemini API Key is missing. Please add it in Settings.")
-
     token = SESSION_STORE.get("default_user")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Fast-path for deselect / clear requests (<10ms)
+    if is_deselect_request(request.prompt):
+        is_ro = is_romanian(request.prompt)
+        reply_msg = (
+            "Am debifat toate fișierele selectate."
+            if is_ro
+            else "Deselected all selected files."
+        )
+        print(f"⚡ Instant Fast-Path: Deselected all files locally (RO={is_ro})")
+        return {
+            "reply": reply_msg,
+            "selected_ids": [],
+            "drive_query": None,
+            "target_platform": "drive",
+            "new_files": [],
+            "model_used": "instant-local"
+        }
+
+    # Fast-path for simple file-type selection queries without date/size constraints (<10ms)
+    file_type_fast_path = match_local_file_type_filter(request.prompt, request.files)
+    if file_type_fast_path is not None:
+        print(f"⚡ Instant Fast-Path: Matched file-type selection locally for '{request.prompt}'")
+        return file_type_fast_path
+
+    if not x_gemini_key or not x_gemini_key.strip():
+        raise HTTPException(status_code=401, detail="Gemini API Key is missing. Please add it in Settings.")
         
     try:
         system_instruction = """
         You are SmartClean, an advanced dual-agent AI for Google Drive and Gmail management.
         You receive a user request, a JSON list of recent files or emails, and thumbnails (if applicable).
+        
+        CRITICAL LANGUAGE RULE: Always respond 100% in the exact same language used by the user in their latest message. If the user writes in English, respond strictly in English. If the user writes in Romanian, respond strictly in Romanian. Never mix languages.
+        
+        CRITICAL DUPLICATE RULE: You only have access to file metadata (name, size, mimeType), NOT visual image content. NEVER guess or claim images are "burst shots", "similar poses", or taken seconds apart based on sequential filenames (like _DSC3543, _DSC3544). Only flag files as duplicates if they appear 2 or more times in the list with the exact same base filename (or '(1)', 'Copy of') AND identical file size. Most importantly: when selecting duplicates for deletion (selected_ids), ALWAYS keep the first/original file unselected and ONLY include the redundant copy's ID in selected_ids so the user never deletes all copies of a file.
+        
+        FORMATTING RULE: Use clean newlines (\\n) and simple bullet points (• ) to organize lists and summaries. Do NOT use markdown asterisks (**) or raw backticks (`) since the chat bubble renders formatted plain text. Keep text readable, organized, and clean.
         
         You have THREE modes of operation. Decide which one fits best:
         
@@ -257,66 +537,187 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
         
         gemini_client = genai.Client(api_key=x_gemini_key.strip())
         
+        # Compact file metadata: include id, name, size, mimeType, and modifiedTime to support date queries
+        compact_files = [
+            {
+                "id": f.get("id"),
+                "name": f.get("name"),
+                "size": f.get("size"),
+                "mimeType": f.get("mimeType"),
+                "modifiedTime": f.get("modifiedTime") or f.get("date") or f.get("createdTime") or ""
+            }
+            for f in request.files
+            if isinstance(f, dict) and f.get("id")
+        ]
+
         prompt_content = [
-            f"User Request: {request.prompt}\n\n",
-            f"Files Metadata: {json.dumps(request.files)}\n\n",
-            "Images for visual analysis (if applicable):\n"
+            f"User Request: {request.prompt}\n\n[IMPORTANT: Detect the language of the user's message above and write your entire response strictly in that same language. Do NOT use Romanian unless the user's message above is written in Romanian.]\n\n",
+            f"Files Metadata: {json.dumps(compact_files, separators=(',', ':'))}\n\n",
         ]
         
-        async with httpx.AsyncClient(verify=False) as http_client:
-            fetch_tasks = []
-            file_metadata_for_tasks = []
+        # Pre-compute exact duplicate groups in Python to prevent AI hallucination
+        duplicate_clusters = find_exact_duplicate_groups(request.files)
+        if duplicate_clusters:
+            dup_info = []
+            for cluster in duplicate_clusters:
+                orig = cluster["original_to_keep"]
+                redundant = cluster["redundant_copies"]
+                dup_info.append({
+                    "original_file_to_keep": {"id": orig["id"], "name": orig["name"], "size": orig.get("size")},
+                    "redundant_copies_to_select": [{"id": r["id"], "name": r["name"], "size": r.get("size")} for r in redundant]
+                })
+            prompt_content.append(f"Pre-computed Verified Duplicate Clusters (Same file size and name): {json.dumps(dup_info, separators=(',', ':'))}\n\n")
 
-            for file_obj in request.files:
-                if 'thumbnailLink' in file_obj and file_obj.get('mimeType', '').startswith('image/'):
-                    # Pregătim URL-urile
-                    thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
-                    # Creăm "task-ul" de descărcare, dar nu îl executăm încă
-                    fetch_tasks.append(http_client.get(thumb_url))
-                    file_metadata_for_tasks.append(file_obj)
+        # Only download image thumbnails if the request explicitly asks for visual inspection (e.g. blurry photos)
+        visual_keywords = ["blurry", "claritate", "neclar", "low quality", "pixelat", "visual", "look like"]
+        needs_visual = any(vk in request.prompt.lower() for vk in visual_keywords)
 
-            if fetch_tasks:
-                print(f"Descarc {len(fetch_tasks)} miniaturi in paralel...")
-                # Executăm TOATE task-urile în același timp!
-                responses = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+        if needs_visual:
+            async with httpx.AsyncClient(verify=False) as http_client:
+                fetch_tasks = []
+                file_metadata_for_tasks = []
 
-                prompt_content.append("Images for visual analysis (if applicable):\n")
-                for file_obj, img_resp in zip(file_metadata_for_tasks, responses):
-                    # Ne asigurăm că request-ul nu a dat eroare și are status 200
-                    if not isinstance(img_resp, Exception) and getattr(img_resp, 'status_code', None) == 200:
-                        prompt_content.append(f"Image for file ID: {file_obj['id']}, Name: {file_obj['name']}")
-                        prompt_content.append(
-                            types.Part.from_bytes(data=img_resp.content, mime_type="image/jpeg")
-                        )
+                for file_obj in request.files[:20]:
+                    if 'thumbnailLink' in file_obj and file_obj.get('mimeType', '').startswith('image/'):
+                        thumb_url = file_obj['thumbnailLink'].replace('=s220', '=s800')
+                        fetch_tasks.append(http_client.get(thumb_url))
+                        file_metadata_for_tasks.append(file_obj)
 
-        max_attempts = 3
+                if fetch_tasks:
+                    print(f"Downloading {len(fetch_tasks)} thumbnails in parallel for visual analysis...")
+                    responses = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+                    prompt_content.append("Images for visual analysis (if applicable):\n")
+                    for file_obj, img_resp in zip(file_metadata_for_tasks, responses):
+                        # Ensure request succeeded with status 200
+                        if not isinstance(img_resp, Exception) and getattr(img_resp, 'status_code', None) == 200:
+                            prompt_content.append(f"Image for file ID: {file_obj['id']}, Name: {file_obj['name']}")
+                            prompt_content.append(
+                                types.Part.from_bytes(data=img_resp.content, mime_type="image/jpeg")
+                            )
+
+        # Active hierarchy prioritizing fastest proven working models
+        fallback_hierarchy = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-3.1-pro-preview"]
+        
+        # Smart Routing & Model Selection
+        user_pref = (request.preferred_model or "auto").strip()
+        if user_pref.lower() == "auto" or not user_pref:
+            is_complex = is_complex_task(request.prompt)
+            primary_model = "gemini-3.8-flash" if is_complex else "gemini-3.5-flash-lite"
+            print(f"🧠 Smart Routing: selected '{primary_model}' (complex task: {is_complex})")
+        else:
+            primary_model = user_pref
+
+        # Build ordered list ensuring primary_model is tried first
+        candidate_models = [primary_model] + [m for m in fallback_hierarchy if m != primary_model]
+
+        # Filter out models currently in cooldown
+        now = time.time()
+        models_to_try = [m for m in candidate_models if MODEL_COOLDOWN_UNTIL.get(m, 0) <= now]
+        if not models_to_try:
+            print("⚠️ All candidate models are currently in cooldown. Resetting cooldowns and retrying all.")
+            models_to_try = candidate_models
+        else:
+            skipped = [m for m in candidate_models if m not in models_to_try]
+            if skipped:
+                print(f"⏳ Skipping models currently in cooldown: {skipped}")
+
         response = None
-        for attempt in range(1, max_attempts + 1):
+        successful_model = None
+        last_error = None
+
+        for model_name in models_to_try:
             try:
-                response = await gemini_client.aio.models.generate_content(
-                    model="gemini-3.5-flash",
-                    contents=prompt_content,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction
+                print(f"🤖 Attempting generation with Gemini model: {model_name}...")
+                try:
+                    response = await gemini_client.aio.models.generate_content(
+                        model=model_name,
+                        contents=prompt_content,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_instruction,
+                            response_mime_type="application/json"
+                        )
                     )
-                )
+                except Exception as call_err:
+                    call_err_str = str(call_err)
+                    if "400" in call_err_str or "INVALID_ARGUMENT" in call_err_str:
+                        print(f"⚠️ Model '{model_name}' rejected response_mime_type='application/json', retrying with plain config...")
+                        response = await gemini_client.aio.models.generate_content(
+                            model=model_name,
+                            contents=prompt_content,
+                            config=types.GenerateContentConfig(
+                                system_instruction=system_instruction
+                            )
+                        )
+                    else:
+                        raise call_err
+
+                successful_model = model_name
+                MODEL_COOLDOWN_UNTIL.pop(model_name, None)
+                print(f"✅ Successfully generated content using {model_name}")
                 break
             except Exception as e:
+                last_error = e
                 status_code = getattr(e, "code", None)
                 err_msg = str(e)
-                print(f"⚠️ Gemini call attempt {attempt}/{max_attempts} failed: {e}")
+                print(f"⚠️ Gemini call failed with model '{model_name}': {err_msg}")
 
-                # Fast-fail on non-retryable client errors (e.g. 400 Bad Request, 401/403 Invalid API key)
-                if status_code in (400, 401, 403) and "429" not in err_msg:
-                    raise e
+                # Check if this is an API key authentication/permission error (terminate immediately)
+                is_auth_error = (
+                    status_code in (401, 403)
+                    or "API_KEY_INVALID" in err_msg
+                    or "UNAUTHENTICATED" in err_msg
+                    or "PERMISSION_DENIED" in err_msg
+                    or "API key not valid" in err_msg
+                )
+                if is_auth_error:
+                    print(f"❌ Auth error ({status_code}) with {model_name}: {err_msg}. Raising immediately.")
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Gemini API Key is invalid or expired. Please check your key in Settings."
+                    )
 
-                if attempt == max_attempts:
-                    print(f"❌ Gemini call failed after {max_attempts} attempts.")
-                    raise e
+                # Check if error is 404 (Not Found / Model deprecated or removed)
+                is_404 = (
+                    status_code == 404
+                    or "404" in err_msg
+                    or "NOT_FOUND" in err_msg
+                )
 
-                wait_time = 2 * (2 ** (attempt - 1))  # 2s on attempt 1, 4s on attempt 2
-                print(f"⏳ Rate limit or service error encountered. Retrying in {wait_time}s...")
-                await asyncio.sleep(wait_time)
+                # Check if error is 400 (Invalid Argument / Model rejected request)
+                is_400 = (
+                    status_code == 400
+                    or "400" in err_msg
+                    or "INVALID_ARGUMENT" in err_msg
+                )
+
+                # Check if error is 429 (Rate Limit / Quota) or 503 (Unavailable / Overloaded)
+                is_429_or_503 = (
+                    status_code in (429, 503)
+                    or "429" in err_msg
+                    or "503" in err_msg
+                    or "RESOURCE_EXHAUSTED" in err_msg
+                    or "UNAVAILABLE" in err_msg
+                    or "overloaded" in err_msg.lower()
+                )
+
+                if is_404 or is_400:
+                    MODEL_COOLDOWN_UNTIL[model_name] = time.time() + 3600  # 1 hour
+                    print(f"🚫 Model '{model_name}' hit {status_code or '400/404'}. Placed on 1-hour cooldown. Trying next model...")
+                elif is_429_or_503:
+                    MODEL_COOLDOWN_UNTIL[model_name] = time.time() + 120  # 2 minutes
+                    print(f"⏳ Model '{model_name}' rate limited/overloaded. Placed on 2-minute cooldown. Trying next model...")
+                else:
+                    print(f"⚠️ Model '{model_name}' hit error: {err_msg}. Trying next fallback model...")
+
+                continue
+
+        if not response:
+            print(f"❌ All Gemini models exhausted: {models_to_try}. Last error: {last_error}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"All Gemini models failed. Last error: {last_error}"
+            )
 
         raw_text = response.text if response else ""
         
@@ -325,7 +726,7 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
         try:
             data = json.loads(clean_text)
         except json.JSONDecodeError:
-            print(f"Eroare la parsarea JSON-ului generat de AI: {clean_text}")
+            print(f"Error parsing AI-generated JSON: {clean_text}")
             data = {
                 "reply": raw_text,
                 "selected_ids": [],
@@ -333,9 +734,17 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
                 "target_platform": "drive"
             }
         
-        # MAGIA HIBRIDĂ: Executăm query-ul global cerut de AI
+        # HYBRID SEARCH: Only execute global query requested by AI if user actually asked for search/scan
+        drive_query = data.get("drive_query")
+        if drive_query and str(drive_query).strip().lower() not in ("none", "null", ""):
+            search_keywords = ["search", "find", "all", "get", "show", "list", "cauta", "gaseste", "toate", "arata", "extrage", "scan", "email", "mail", "spam", "newsletter", "inbox"]
+            has_search_intent = any(k in request.prompt.lower() for k in search_keywords)
+            if not has_search_intent and not is_complex_task(request.prompt):
+                print(f"ℹ️ Skipping unexpected drive_query '{drive_query}' because user prompt lacks search intent.")
+                data["drive_query"] = None
+
         if data.get("drive_query"):
-            print(f"🔎 Căutare globală cerută de AI: {data['drive_query']}")
+            print(f"🔎 Global search requested by AI: {data['drive_query']}")
             try:
                 creds = Credentials(token=token)
                 target_platform = data.get("target_platform", "drive")
@@ -387,11 +796,9 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
                                     })
                         data["new_files"] = new_files
                         data["selected_ids"] = [f["id"] for f in new_files]
-                        data["reply"] += f" (Am scanat inbox-ul și am extras {len(new_files)} emailuri relevante)."
                     else:
                         data["new_files"] = []
                         data["selected_ids"] = []
-                        data["reply"] += " (Nu am găsit emailuri relevante)."
                         
                 else:
                     service = build('drive', 'v3', credentials=creds)
@@ -411,23 +818,19 @@ async def process_chat(request: ChatRequest, x_gemini_key: str = Header(None)):
                     data["new_files"] = new_files
                     data["selected_ids"] = [f["id"] for f in new_files]
                     
-                    if new_files:
-                        data["reply"] += f" (Am scanat cloud-ul și am extras {len(new_files)} rezultate relevante pe care le-am adus în listă)."
-                    else:
-                        data["reply"] += " (Nu am găsit nimic relevant în tot contul)."
-                    
             except Exception as query_err:
-                print(f"Eroare la Google API Query: {query_err}")
-                # Attach the exact error to the UI response so the user can debug it
-                data["reply"] += f" (Eroare API: {str(query_err)})."
+                print(f"Error during Google API Query: {query_err}")
                 data["new_files"] = []
         else:
             data["new_files"] = []
             
+        data["model_used"] = successful_model
         return data
         
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Eroare la procesarea AI: {e}")
+        print(f"Error during AI processing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 class DeleteRequest(BaseModel):
