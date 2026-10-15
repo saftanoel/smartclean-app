@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock, Mail, Key, Eye, EyeOff, RefreshCw, Send } from "lucide-react";
+import { FileText, Image as ImageIcon, FileSpreadsheet, Presentation, File as FileIcon, Folder, FileArchive, ArrowUpRight, RotateCcw, Search, Cloud, Trash2, LayoutDashboard, Loader2, Settings, ShieldCheck, Bot, Eraser, Palette, Lock, Mail, Key, Eye, EyeOff, RefreshCw, Send, Cpu } from "lucide-react";
 import "./App.css";
 
 type ApiStatus = "checking" | "connected" | "disconnected";
@@ -37,6 +37,15 @@ const TypewriterText = ({ text, speed = 10 }: { text: string; speed?: number }) 
   return <>{displayedText}</>;
 };
 
+const VALID_GEMINI_MODELS = [
+  "auto",
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3.1-pro-preview",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite"
+] as const;
+
 function App() {
   const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
   const [isConnected, setIsConnected] = useState(false);
@@ -68,6 +77,15 @@ function App() {
   const [isCompactMode, setIsCompactMode] = useState<boolean>(
     () => localStorage.getItem('isCompactMode') === 'true'
   );
+  const [preferredModel, setPreferredModel] = useState<string>(() => {
+    const cached = localStorage.getItem('preferredGeminiModel');
+    if (cached && (VALID_GEMINI_MODELS as readonly string[]).includes(cached)) {
+      return cached;
+    }
+    localStorage.setItem('preferredGeminiModel', 'auto');
+    return 'auto';
+  });
+  const [lastUsedModel, setLastUsedModel] = useState<string>("");
   const [trashFiles, setTrashFiles] = useState<DriveFile[]>([]);
   const [isLoadingTrash, setIsLoadingTrash] = useState(false);
   const [userEmail, setUserEmail] = useState<string>("");
@@ -106,7 +124,8 @@ function App() {
     localStorage.setItem('searchBatchSize', searchBatchSize.toString());
     localStorage.setItem('typewriterSpeed', typewriterSpeed.toString());
     localStorage.setItem('isCompactMode', isCompactMode.toString());
-  }, [excludedExtensions, searchBatchSize, typewriterSpeed, isCompactMode]);
+    localStorage.setItem('preferredGeminiModel', preferredModel);
+  }, [excludedExtensions, searchBatchSize, typewriterSpeed, isCompactMode, preferredModel]);
 
   const formatBytes = (bytes?: string) => {
     if (!bytes) return "--";
@@ -266,11 +285,18 @@ function App() {
           "Content-Type": "application/json",
           "x-gemini-key": apiKey
         },
-        body: JSON.stringify({ prompt: userText, files: currentList })
+        body: JSON.stringify({
+          prompt: userText,
+          files: currentList,
+          preferred_model: preferredModel
+        })
       });
 
       if (res.ok) {
         const data = await res.json();
+        if (data.model_used) {
+          setLastUsedModel(data.model_used);
+        }
 
         if (data.new_files && data.new_files.length > 0) {
           if (data.target_platform === "gmail") {
@@ -731,7 +757,28 @@ function App() {
               </div>
 
               <div className="settings-card glass-panel">
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} /> AI & Chat Preferences</h3>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} /> AI & Model Preferences</h3>
+                <div className="setting-row">
+                  <label htmlFor="preferredGeminiModel" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Cpu size={14} /> Preferred Gemini Model
+                  </label>
+                  <select
+                    id="preferredGeminiModel"
+                    className="macos-input macos-select"
+                    value={preferredModel}
+                    onChange={e => setPreferredModel(e.target.value)}
+                  >
+                    <option value="auto">Auto (Smart Routing - Recommended)</option>
+                    <option value="gemini-3.6-flash">gemini-3.6-flash (Balanced & Fast - Stable)</option>
+                    <option value="gemini-3.8-flash">gemini-3.8-flash (Complex Agentic Tasks - Stable)</option>
+                    <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Deep Reasoning Pro)</option>
+                    <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra-Fast & Low Cost)</option>
+                    <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Lightweight Fallback)</option>
+                  </select>
+                  <span style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.5)' }}>
+                    Auto dynamically routes complex analysis to Gemini 3.1 Pro and standard queries to Gemini 3.6, with automatic fallback across the Gemini 3 series.
+                  </span>
+                </div>
                 <div className="setting-row">
                   <label>Typewriter Effect Speed ({typewriterSpeed}ms)</label>
                   <input type="range" min="5" max="50" step="1" value={typewriterSpeed} onChange={e => setTypewriterSpeed(parseInt(e.target.value))} />
@@ -941,7 +988,7 @@ function App() {
 
               <div className="panel ai-panel glass-panel">
                 <div className="panel-header">
-                  <h3>SmartClean Assistant (Gemini 3.5 Flash)</h3>
+                  <h3>SmartClean Assistant ({preferredModel === 'auto' ? `Auto • ${isThinking ? 'Routing...' : (lastUsedModel || 'Ready')}` : preferredModel})</h3>
                   <button
                     className="shadcn-icon-button clear-chat-btn"
                     onClick={() => {
