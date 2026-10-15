@@ -111,9 +111,13 @@ Unlike standard AI file organizers that hallucinate "burst shot duplicates" from
 
 1. Navigate to the [Releases](https://github.com/saftanoel/smartclean-app/releases) page.
 2. Download the latest `SmartClean_1.1.0_aarch64.dmg` (Apple Silicon) or macOS application bundle.
-3. Open the `.dmg` and drag **SmartClean** into your `/Applications` folder.
-4. Launch the app and authenticate with your Google Account.
-5. In **Settings** (or in chat when prompted), enter your free Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+3. Open the `.dmg` and drag **SmartClean.app** into your `/Applications` folder.
+4. Before launching the app for the first time, open **Terminal** and run the following command to bypass macOS Gatekeeper:
+   ```bash
+   xattr -cr /Applications/SmartClean.app
+   ```
+5. Launch the app and authenticate with your Google Account.
+6. In **Settings** (or in chat when prompted), enter your free Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 ---
 
